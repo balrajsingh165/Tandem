@@ -1,0 +1,33 @@
+# ============================================================================
+# Android / Gradle
+# ============================================================================
+# gradlew / gradlew.bat and the wrapper jar are committed; build output is not.
+android/.gradle/
+android/**/build/
+android/local.properties
+android/captures/
+android/.cxx/
+android/.kotlin/
+*.apk
+*.aab
+*.jks
+*.keystore
+.idea/
+*.iml
+
+# ============================================================================
+# Rust / Cargo
+# ============================================================================
+# Cargo.lock is committed (binary workspace); build output is not.
+**/target/
+**/*.rs.bk
+
+# ============================================================================
+# Node / Tauri
+# ============================================================================
+# desktop/ui/src-tauri/target/ is covered by the Cargo section above.
+node_modules/
+desktop/ui/dist/
+desktop/ui/.vite/
+desktop/ui/src-tauri/gen/schemas/
+npm-debug.log*
