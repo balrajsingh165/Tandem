@@ -1,0 +1,17 @@
+# Manifest for tandem_pairing: depends on tandem_transport, tandem_crypto, and
+# tandem_proto for the first-pairing flow.
+
+[package]
+name = "tandem_pairing"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+tandem_crypto = { path = "../crypto" }
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+hkdf.workspace = true

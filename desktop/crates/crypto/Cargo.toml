@@ -1,0 +1,16 @@
+# Manifest for tandem_crypto: ring/rcgen for keys and certs, keyring for OS
+# secret storage.
+
+[package]
+name = "tandem_crypto"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+sha2.workspace = true
+hmac.workspace = true
+hkdf.workspace = true
+base64.workspace = true

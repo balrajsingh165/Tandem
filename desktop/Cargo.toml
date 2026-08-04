@@ -4,7 +4,7 @@
 
 [workspace]
 resolver = "2"
-members = ["crates/proto", "crates/core"]
+members = ["crates/proto", "crates/core", "crates/crypto", "crates/pairing"]
 
 [workspace.package]
 version = "0.1.0"
@@ -21,3 +21,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"
 tracing = "0.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
+hmac = "0.12"
+hkdf = "0.12"
+base64 = "0.22"
