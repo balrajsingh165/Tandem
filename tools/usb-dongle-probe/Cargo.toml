@@ -1,0 +1,17 @@
+# Manifest for the usb-dongle-probe developer tool.
+# [Tier B — Win/macOS USB dongle]
+
+[package]
+name = "usb-dongle-probe"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+license = "LicenseRef-TBD"
+
+# Standalone of the desktop workspace: this is a developer tool, not a shipped
+# component, and it must build without the daemon's dependency tree.
+[workspace]
+
+[[bin]]
+name = "usb-dongle-probe"
+path = "src/main.rs"
