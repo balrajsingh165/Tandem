@@ -1,0 +1,13 @@
+# Manifest for tandem_core: pure domain crate; depends only on tandem_proto and
+# std ecosystem basics — no I/O, no async runtime types in public APIs.
+
+[package]
+name = "tandem_core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+tandem_proto = { path = "../proto" }
+thiserror.workspace = true
