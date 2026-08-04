@@ -1,0 +1,19 @@
+# Manifest for tandem_bluetooth: zbus (BlueZ D-Bus) behind the linux_bluez
+# feature, nusb behind the usb_dongle feature, shared HFP core always compiled.
+# [Tier B]
+
+[package]
+name = "tandem_bluetooth"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+default = []
+linux_bluez = []
+usb_dongle = []
+
+[dependencies]
+tandem_audio = { path = "../audio" }
+thiserror.workspace = true

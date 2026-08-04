@@ -1,4 +1,4 @@
-# Cargo workspace for the Tandem desktop: member crates (proto, core, transport,
+﻿# Cargo workspace for the Tandem desktop: member crates (proto, core, transport,
 # pairing, crypto, audio, bluetooth, ipc, testkit), the daemon and Tauri shell
 # binaries, and shared workspace dependency versions.
 
@@ -11,6 +11,7 @@ members = [
     "crates/pairing",
     "crates/transport",
     "crates/audio",
+    "crates/bluetooth",
 ]
 
 [workspace.package]
@@ -32,3 +33,4 @@ sha2 = "0.10"
 hmac = "0.12"
 hkdf = "0.12"
 base64 = "0.22"
+

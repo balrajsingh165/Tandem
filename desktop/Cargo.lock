@@ -518,6 +518,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "tandem_bluetooth"
+version = "0.1.0"
+dependencies = [
+ "tandem_audio",
+ "thiserror",
+]
+
+[[package]]
 name = "tandem_core"
 version = "0.1.0"
 dependencies = [
