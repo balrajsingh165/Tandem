@@ -1,0 +1,47 @@
+// Call-history sync messages for TLP v1. The phone's OS call log is the
+// source of truth; desktops hold a read-only, incrementally synced projection.
+
+syntax = "proto3";
+
+package tandem.v1;
+
+import "tandem/v1/common.proto";
+
+option java_package = "com.tandem.gateway.proto.v1";
+option java_multiple_files = true;
+
+enum CallLogType {
+  CALL_LOG_TYPE_UNSPECIFIED = 0;
+  CALL_LOG_TYPE_INCOMING = 1;
+  CALL_LOG_TYPE_OUTGOING = 2;
+  CALL_LOG_TYPE_MISSED = 3;
+  CALL_LOG_TYPE_REJECTED = 4;
+}
+
+// Projection of one android.provider.CallLog.Calls row.
+message CallLogEntry {
+  string entry_id = 1;              // Phone-side stable id (CallLog row _ID as string).
+  string number = 2;
+  string display_name = 3;          // Contact name at time of sync; may be empty.
+  CallLogType type = 4;
+  int64 started_at_ms = 5;
+  uint32 duration_seconds = 6;
+  int32 sim_slot = 7;               // -1 when unknown.
+}
+
+message CallLogSyncRequest {
+  int64 since_ms = 1;               // Return entries with started_at_ms >= since_ms.
+  uint32 max_entries = 2;           // Page size; server caps at 200.
+}
+
+message CallLogSyncResponse {
+  Status status = 1;
+  repeated CallLogEntry entries = 2;
+  uint64 log_version = 3;           // Phone-persisted monotonic call-log version.
+  bool has_more = 4;
+}
+
+// Nudge: the phone's call log changed; desktops should issue a sync request.
+message CallLogChangedEvent {
+  uint64 log_version = 1;
+}
