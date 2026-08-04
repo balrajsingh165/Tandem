@@ -93,6 +93,20 @@ impl WsTransportClient {
         identity: ClientIdentity,
         next_message_id: u64,
     ) -> Result<Self, TransportError> {
+        let mut client = Self::connect_provisional(host, port, tls_config, next_message_id).await?;
+        client.session = client.handshake(identity).await?;
+        Ok(client)
+    }
+
+    /// Opens the transport without the session handshake. First pairing uses
+    /// this: the desktop is not yet a known peer, so its first frame is a
+    /// PairingRequest rather than a SessionHello (docs/07).
+    pub async fn connect_provisional(
+        host: &str,
+        port: u16,
+        tls_config: ClientConfig,
+        next_message_id: u64,
+    ) -> Result<Self, TransportError> {
         let endpoint = format!("{host}:{port}");
 
         let tcp =
@@ -123,17 +137,45 @@ impl WsTransportClient {
                     reason: e.to_string(),
                 })?;
 
-        let mut client = Self {
+        Ok(Self {
             socket,
             codec: EnvelopeCodec::resuming_at(next_message_id),
             session: SessionInfo::default(),
-        };
-        client.session = client.handshake(identity).await?;
-        Ok(client)
+        })
     }
 
     pub fn session(&self) -> &SessionInfo {
         &self.session
+    }
+
+    /// Sends one payload without waiting for a reply. Pairing drives the
+    /// exchange explicitly because the phone answers with an unsolicited
+    /// confirmation event before the decision arrives.
+    pub async fn send_payload(&mut self, payload: Payload) -> Result<u64, TransportError> {
+        let message_id = self.codec.next_message_id();
+        let frame = self.codec.encode_request(payload)?;
+        self.send(frame).await?;
+        Ok(message_id)
+    }
+
+    /// RFC 8446 exporter output for this connection. Pairing derives the
+    /// comparison short code from it, which is what binds the code to this exact
+    /// TLS session rather than to replayable material (docs/07).
+    pub fn tls_exporter(&self, label: &[u8], length: usize) -> Result<Vec<u8>, TransportError> {
+        let (_tcp, connection) = self.socket.get_ref().get_ref();
+        let mut output = vec![0u8; length];
+        connection
+            .export_keying_material(&mut output, label, None)
+            .map_err(|e| TransportError::TlsHandshake(e.to_string()))?;
+        Ok(output)
+    }
+
+    /// Awaits the next payload of any kind, solicited or not.
+    pub async fn next_payload(&mut self) -> Result<Payload, TransportError> {
+        self.receive()
+            .await?
+            .payload
+            .ok_or_else(|| TransportError::ProtocolViolation("envelope had no payload".into()))
     }
 
     pub fn next_message_id(&self) -> u64 {

@@ -986,12 +986,21 @@ dependencies = [
 name = "tandem_pairing"
 version = "0.1.0"
 dependencies = [
+ "futures-util",
  "hkdf",
+ "rcgen",
+ "rustls",
+ "rustls-pki-types",
  "serde",
  "serde_json",
  "sha2",
  "tandem_crypto",
+ "tandem_proto",
+ "tandem_transport",
  "thiserror 2.0.19",
+ "tokio",
+ "tokio-rustls",
+ "tokio-tungstenite",
 ]
 
 [[package]]

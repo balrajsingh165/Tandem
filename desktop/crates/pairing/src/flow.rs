@@ -3,6 +3,12 @@
 //! finalization — persisting the phone identity and this desktop's assigned
 //! device id.
 
+use rustls_pki_types::{CertificateDer, PrivateKeyDer};
+use tandem_crypto::SpkiFingerprint;
+use tandem_proto::{envelope::Payload, ErrorCode, PairingRequest};
+use tandem_transport::client::WsTransportClient;
+use tandem_transport::tls::{client_config, PinSource};
+
 use crate::error::PairingError;
 use crate::qr::QrPayload;
 use crate::short_code::ShortCode;
@@ -25,11 +31,33 @@ pub struct PairedPhoneRecord {
     pub phone_name: String,
     pub protocol_version: u32,
     pub phone_bt_address: String,
+    /// The phone key this desktop pins for every later session.
+    pub phone_spki_sha256: SpkiFingerprint,
 }
 
 /// Version window this desktop advertises in `PairingRequest`.
 pub const PROTOCOL_MIN: u32 = 1;
 pub const PROTOCOL_MAX: u32 = 1;
+
+/// This desktop's identity as presented during pairing.
+#[derive(Debug, Clone)]
+pub struct DesktopCredentials {
+    pub name: String,
+    pub platform: String,
+    pub cert_der: Vec<u8>,
+    pub key_der: Vec<u8>,
+}
+
+impl DesktopCredentials {
+    fn rustls_parts(
+        &self,
+    ) -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>), PairingError> {
+        let cert = CertificateDer::from(self.cert_der.clone());
+        let key = PrivateKeyDer::try_from(self.key_der.clone())
+            .map_err(|e| PairingError::Transport(format!("unusable device key: {e}")))?;
+        Ok((vec![cert], key))
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PairingFlow {
@@ -81,6 +109,136 @@ impl PairingFlow {
             })
         }
     }
+
+    /// Runs the exchange to a verdict. The QR fingerprint pins the TLS peer, so
+    /// a phone that cannot prove that key never sees the pairing token.
+    pub async fn run(
+        &mut self,
+        credentials: &DesktopCredentials,
+        mut on_progress: impl FnMut(&PairingState),
+    ) -> Result<PairedPhoneRecord, PairingError> {
+        self.begin_connect();
+        on_progress(&self.state);
+
+        let pin = PinSource::PairingBootstrap(self.invitation.fingerprint.clone());
+        let (chain, key) = credentials.rustls_parts()?;
+        let tls =
+            client_config(&pin, chain, key).map_err(|e| PairingError::Transport(e.to_string()))?;
+
+        let mut client = WsTransportClient::connect_provisional(
+            &self.invitation.host,
+            self.invitation.port,
+            tls,
+            1,
+        )
+        .await
+        .map_err(|e| self.record_failure(PairingError::Transport(e.to_string())))?;
+
+        let request = Payload::PairingRequest(PairingRequest {
+            pairing_token: self.invitation.token.clone(),
+            desktop_cert_der: credentials.cert_der.clone(),
+            desktop_name: credentials.name.clone(),
+            desktop_platform: credentials.platform.clone(),
+            protocol_min: PROTOCOL_MIN,
+            protocol_max: PROTOCOL_MAX,
+        });
+
+        client
+            .send_payload(request)
+            .await
+            .map_err(|e| self.record_failure(PairingError::Transport(e.to_string())))?;
+
+        loop {
+            let payload = client
+                .next_payload()
+                .await
+                .map_err(|e| self.record_failure(PairingError::Transport(e.to_string())))?;
+
+            match payload {
+                Payload::PairingAwaitConfirmEvent(event) => {
+                    // The short code is only meaningful on the manual path; on the
+                    // QR path the scan already bound both identities.
+                    let code = if event.require_short_code {
+                        Some(self.derive_short_code(&client, credentials)?)
+                    } else {
+                        None
+                    };
+                    self.await_confirmation(code);
+                    on_progress(&self.state);
+                }
+
+                Payload::PairingDecision(decision) => {
+                    let ok = decision
+                        .status
+                        .as_ref()
+                        .map(|s| s.code == ErrorCode::Ok as i32)
+                        .unwrap_or(false);
+
+                    if !ok {
+                        let error = match decision.status.as_ref().map(|s| s.code) {
+                            Some(code) if code == ErrorCode::PairingRejected as i32 => {
+                                PairingError::RejectedByUser
+                            }
+                            _ => PairingError::RejectedByUser,
+                        };
+                        return Err(self.record_failure(error));
+                    }
+
+                    let version = self
+                        .accept_version(decision.protocol_version)
+                        .map_err(|e| self.record_failure(e))?;
+
+                    let record = PairedPhoneRecord {
+                        desktop_device_id: decision.desktop_device_id,
+                        phone_device_id: decision.phone_device_id,
+                        phone_name: decision.phone_name,
+                        protocol_version: version,
+                        phone_bt_address: decision.phone_bt_address,
+                        phone_spki_sha256: self.invitation.fingerprint.clone(),
+                    };
+                    self.accept(record.clone());
+                    on_progress(&self.state);
+                    return Ok(record);
+                }
+
+                Payload::RevokedEvent(_) => {
+                    return Err(self.record_failure(PairingError::RejectedByUser))
+                }
+
+                // Anything else during pairing is noise from a confused peer.
+                _ => continue,
+            }
+        }
+    }
+
+    /// Binds the displayed digits to this TLS session and to both identities, so
+    /// a matching code on both screens rules out a machine in the middle.
+    fn derive_short_code(
+        &self,
+        client: &WsTransportClient,
+        credentials: &DesktopCredentials,
+    ) -> Result<ShortCode, PairingError> {
+        let exporter = client
+            .tls_exporter(
+                crate::short_code::EXPORTER_LABEL,
+                crate::short_code::EXPORTER_LENGTH,
+            )
+            .map_err(|e| PairingError::Transport(e.to_string()))?;
+
+        let desktop_spki = tandem_transport::tls::spki_from_certificate(&credentials.cert_der)
+            .map_err(|e| PairingError::Transport(e.to_string()))?;
+
+        Ok(ShortCode::derive(
+            &exporter,
+            &self.invitation.fingerprint,
+            &SpkiFingerprint::from_spki_der(&desktop_spki),
+        ))
+    }
+
+    fn record_failure(&mut self, error: PairingError) -> PairingError {
+        self.fail(error.clone());
+        error
+    }
 }
 
 #[cfg(test)]
@@ -115,6 +273,7 @@ mod tests {
             phone_name: "Pixel".into(),
             protocol_version: 1,
             phone_bt_address: String::new(),
+            phone_spki_sha256: SpkiFingerprint::from_spki_der(b"phone-key"),
         });
         assert!(matches!(f.state(), PairingState::Accepted(_)));
     }

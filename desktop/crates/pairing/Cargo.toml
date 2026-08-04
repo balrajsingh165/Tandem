@@ -10,8 +10,19 @@ license.workspace = true
 
 [dependencies]
 tandem_crypto = { path = "../crypto" }
+tandem_proto = { path = "../proto" }
+tandem_transport = { path = "../transport" }
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 hkdf.workspace = true
+rustls-pki-types.workspace = true
+
+[dev-dependencies]
+rcgen.workspace = true
+rustls.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "time", "io-util"] }
+tokio-rustls.workspace = true
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
