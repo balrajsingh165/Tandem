@@ -1,0 +1,45 @@
+// First-pairing handshake messages for TLP v1. Runs inside a provisional TLS
+// session bootstrapped by the QR/short-code secret (see docs/07). The phone
+// owns the paired-desktop list and arbitrates acceptance.
+
+syntax = "proto3";
+
+package tandem.v1;
+
+import "tandem/v1/common.proto";
+
+option java_package = "com.tandem.gateway.proto.v1";
+option java_multiple_files = true;
+
+message PairingRequest {
+  string pairing_token = 1;         // One-time token from the QR payload; TTL 120 s.
+  bytes desktop_cert_der = 2;       // Desktop's self-signed device cert (P-256).
+  string desktop_name = 3;          // Human label shown in the phone's paired list.
+  string desktop_platform = 4;      // "linux" | "windows" | "macos".
+  uint32 protocol_min = 5;
+  uint32 protocol_max = 6;
+}
+
+// Phone -> desktop: token accepted; waiting on the user's confirmation tap.
+// require_short_code is true on the manual-entry (no-QR) path, where both
+// screens display a 6-digit code derived from the key exchange for comparison.
+message PairingAwaitConfirmEvent {
+  bool require_short_code = 1;
+}
+
+// Phone -> desktop: final verdict. On success the desktop persists the phone
+// identity and may connect normal sessions from then on.
+message PairingDecision {
+  Status status = 1;
+  string desktop_device_id = 2;     // UUIDv4 assigned by the phone.
+  string phone_device_id = 3;
+  string phone_name = 4;
+  uint32 protocol_version = 5;      // Highest mutually supported version.
+  string phone_bt_address = 6;      // For later BT bonding (Tier B); may be empty.
+}
+
+// Phone -> desktop: this desktop's authorization was revoked; the session
+// closes immediately after this event and future TLS handshakes are refused.
+message RevokedEvent {
+  string reason = 1;
+}
