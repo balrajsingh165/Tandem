@@ -1,0 +1,12 @@
+# Manifest for tandem_audio: cpal for device I/O, webrtc-audio-processing for
+# AEC, plus resampling dependencies. [Tier B]
+
+[package]
+name = "tandem_audio"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror.workspace = true

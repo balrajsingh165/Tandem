@@ -511,6 +511,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "tandem_audio"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+]
+
+[[package]]
 name = "tandem_core"
 version = "0.1.0"
 dependencies = [
