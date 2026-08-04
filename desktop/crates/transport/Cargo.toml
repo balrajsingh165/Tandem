@@ -14,3 +14,15 @@ tandem_core = { path = "../core" }
 tandem_crypto = { path = "../crypto" }
 prost.workspace = true
 thiserror.workspace = true
+tokio.workspace = true
+tokio-rustls.workspace = true
+tokio-tungstenite.workspace = true
+rustls.workspace = true
+rustls-pki-types.workspace = true
+futures-util.workspace = true
+x509-parser.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+rcgen.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "time", "io-util", "sync"] }
