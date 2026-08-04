@@ -336,7 +336,7 @@ LAN pin before it will ever target a bonded address.
 
 ## Future: optional cloud account
 
-A later optional cloud account (roadmap phase 5, see [16-roadmap.md](16-roadmap.md)) could sit
+A later optional cloud account (roadmap phase 7, see [16-roadmap.md](16-roadmap.md)) could sit
 *above* this design — syncing the paired-device roster and settings across a user's machines,
 delivering a phone's pin and endpoint to a new desktop without a QR scan, and providing rendezvous
 for a beyond-same-room mode — without changing the trust anchor. Per-device pinned keys, the

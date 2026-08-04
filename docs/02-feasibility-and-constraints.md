@@ -113,15 +113,22 @@ the machine's ordinary Bluetooth adapter.
 
 ### Windows `[Tier B — Win/macOS USB dongle]`
 
-The in-box Windows stack implements hands-free calling for the OS's own features, but exposes
-**no API for an application to take the HF role or touch SCO audio**: Windows Bluetooth sockets
-(`AF_BTH`) support RFCOMM only, and the profile drivers are not pluggable from user space.
-Tandem's path is a **dedicated USB Bluetooth controller** (standard HCI-over-USB class device)
-detached from the in-box driver and bound to WinUSB, so `tandem-daemon` owns the controller and
-implements HCI, L2CAP, RFCOMM, SDP, and HFP-HF itself — a clean-room implementation of the
-published Bluetooth SIG Core and HFP v1.8 specifications, not reverse engineering of any
-product. Driver rebinding needs one-time administrator action (packaging details in
-[12-permissions-and-platform.md](12-permissions-and-platform.md)).
+The in-box Windows stack implements hands-free calling for Windows' own features, but a normal
+desktop app still has **no public API to take the HF role and touch SCO audio**. Public Windows
+Bluetooth app APIs cover RFCOMM-style byte streams; SCO/eSCO voice access is a Bluetooth
+profile-driver surface, not a Tauri/Rust application surface.
+
+For the Windows-only, no-extra-hardware product direction, Tandem therefore documents a new
+software-first path in [17-windows-software-audio.md](17-windows-software-audio.md) and ADR-0011:
+a signed Windows Bluetooth profile-driver backend over the PC's built-in adapter, bridged into
+`tandem-daemon` as a `BluetoothBackend`. That is still software-only from the user's hardware
+perspective, but it carries driver-signing, installer-elevation, and kernel-quality obligations.
+It is phase-gated by a real-device spike before any product commitment.
+
+The older **dedicated USB Bluetooth controller** design remains the fallback architecture if the
+Windows native profile-driver spike fails and the product goal changes to allow extra hardware:
+detach a standard HCI-over-USB controller from the in-box driver, bind it to WinUSB, and let
+`tandem-daemon` own HCI, L2CAP, RFCOMM, SDP, and HFP-HF itself.
 
 ### macOS `[Tier B — Win/macOS USB dongle]`
 
@@ -150,10 +157,16 @@ desktop keep a Tier C backend drop-in-replaceable (ADR-0010).
 flowchart TD
     START["Desktop wants call audio"] --> OS{"Desktop OS"}
     OS -->|"Linux"| BLUEZ["BlueZ + PipeWire HF role — software only"]
-    OS -->|"Windows / macOS"| DONGLE{"Dedicated USB BT controller present"}
+    OS -->|"Windows only"| WDRV{"Native profile-driver spike passed"}
+    WDRV -->|"yes"| WSOFT["Signed Windows profile driver over built-in adapter"]
+    WDRV -->|"no"| WDONGLE{"Product accepts extra hardware"}
+    WDONGLE -->|"yes"| USB["Daemon drives dongle: HCI, L2CAP, RFCOMM, SDP, HFP-HF, SCO"]
+    WDONGLE -->|"no"| LITE["Control + history; audio on handset or phone-paired device"]
+    OS -->|"macOS"| DONGLE{"Dedicated USB BT controller present"}
     DONGLE -->|"yes"| USB["Daemon drives dongle: HCI, L2CAP, RFCOMM, SDP, HFP-HF, SCO"]
-    DONGLE -->|"no"| LITE["Tier B-lite: commodity headset paired to the phone"]
+    DONGLE -->|"no"| LITE
     BLUEZ --> PC["Two-way call audio on the desktop"]
+    WSOFT --> PC
     USB --> PC
     LITE --> HS["Audio on the headset; desktop keeps control + history"]
 ```

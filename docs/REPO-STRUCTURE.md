@@ -50,6 +50,7 @@ tandem/
 │   ├── 14-coding-conventions.md
 │   ├── 15-testing-strategy.md
 │   ├── 16-roadmap.md
+│   ├── 17-windows-software-audio.md
 │   ├── REPO-STRUCTURE.md
 │   └── adr/
 │       ├── 0001-licensing-and-project-name.md
@@ -61,7 +62,8 @@ tandem/
 │       ├── 0007-phone-as-source-of-truth.md
 │       ├── 0008-emergency-call-policy.md
 │       ├── 0009-protobuf-single-source-of-truth.md
-│       └── 0010-tier-model-and-media-backend-abstraction.md
+│       ├── 0010-tier-model-and-media-backend-abstraction.md
+│       └── 0011-windows-software-hfp-backend.md
 ├── android/
 │   ├── settings.gradle.kts
 │   ├── build.gradle.kts

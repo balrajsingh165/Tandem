@@ -167,10 +167,16 @@ Tier B desktop requirements are per-OS, below.
 
 - **Tier A** `[Tier A]`: normal user app. First run triggers a Windows Defender Firewall prompt
   for mDNS/outbound on private networks — must be allowed for discovery.
-- **Tier B** `[Tier B — Win/macOS USB dongle]`: the Windows Bluetooth stack does not expose the
-  HFP Hands-Free role to applications, so Tandem drives a **dedicated** USB Bluetooth
-  controller directly. That controller must be bound to **WinUSB** instead of the in-box
-  Bluetooth driver:
+- **Tier B Windows software track**: the no-extra-hardware path is a signed Windows Bluetooth
+  profile driver plus a user-mode `windows_profile` backend, as scoped in
+  [17-windows-software-audio.md](17-windows-software-audio.md) and ADR-0011. It uses the built-in
+  Bluetooth adapter rather than a Tandem-owned USB controller. This is not a normal app-level
+  Bluetooth permission; it requires driver installation, driver signing, rollback handling, and
+  a real-device spike before shipping.
+- **Tier B hardware fallback** `[Tier B — Win/macOS USB dongle]`: if the native Windows driver
+  spike fails and the product accepts extra hardware, Tandem can still drive a **dedicated** USB
+  Bluetooth controller directly. That controller must be bound to **WinUSB** instead of the
+  in-box Bluetooth driver:
   - Development: rebind with Zadig (steps in [13-build-and-setup.md](13-build-and-setup.md)).
     The dongle disappears from Windows' own Bluetooth — that is the point; any built-in radio
     keeps serving the OS.

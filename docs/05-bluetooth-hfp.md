@@ -366,11 +366,20 @@ Software-only; the machine's built-in adapter suffices, no extra hardware.
 
 ### `[Tier B — Win/macOS USB dongle]` dedicated controller, own host stack
 
-**Why the native stacks are bypassed:** neither Windows nor macOS exposes the Hands-Free *role*
-to applications. Both stacks implement hands-free machinery internally for OS features, but
-there is no public API to register as an HF, receive the SLC's RFCOMM stream, or open a SCO
-channel for an app. There is nothing to plug into, so Tandem does not fight the native stack —
-it sidesteps it with hardware it fully owns.
+**Windows-only software-first update:** for the no-extra-hardware Windows product direction,
+ADR-0011 adds a phase-gated native Windows backend before the USB-controller path. The ordinary
+Windows app surface still does not expose the Hands-Free role or SCO audio, so the software-only
+path is a signed Windows Bluetooth profile driver plus a user-mode backend bridge, documented in
+[17-windows-software-audio.md](17-windows-software-audio.md). If that spike passes, the Windows
+backend becomes `windows_profile`; if it fails, Windows falls back to the USB-controller design
+below, provided the product goal changes to allow extra hardware. This section still describes
+**macOS's only Tier B path** either way — ADR-0011 covers Windows alone.
+
+**Why the native app stacks are bypassed:** neither Windows ordinary app APIs nor macOS expose the
+Hands-Free *role* to applications. Both stacks implement hands-free machinery internally for OS
+features, but there is no public app API to register as an HF, receive the SLC's RFCOMM stream,
+or open a SCO channel. The USB path sidesteps that by owning hardware; the Windows software path
+sidesteps it by owning a driver integration layer instead.
 
 The daemon claims a **dedicated USB Bluetooth controller exclusively** — WinUSB driver binding on
 Windows, IOKit exclusive claim on macOS, both through `nusb` — so the OS Bluetooth stack never

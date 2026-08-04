@@ -70,6 +70,7 @@ flowchart TB
 | `[Tier A]` — control + history | Desktop dials, answers, mutes, holds, merges, ends, sends DTMF, and mirrors the call log; the user talks on the handset or any headset paired to the phone | Feasible today on stock, non-rooted Android via default dialer + `InCallService`; independently shippable as a complete product with zero Bluetooth audio work. |
 | `[Tier B — Linux]` — PC-as-headset audio | Desktop is the HFP Hands-Free device; two-way call audio on desktop mic/speakers | Feasible in software alone via BlueZ (+ PipeWire for audio); no special hardware. |
 | `[Tier B — Win/macOS USB dongle]` — PC-as-headset audio | Same as above on Windows and macOS | Feasible only with a dedicated USB Bluetooth controller the daemon drives directly, implementing HFP against the published Bluetooth SIG spec; the OS stacks do not expose the HF role to apps. |
+| Windows software-audio track | Windows-only PC-as-headset audio with no extra Bluetooth controller | Phase-gated by [17-windows-software-audio.md](17-windows-software-audio.md) and ADR-0011: pursue a signed Windows Bluetooth profile-driver backend over the built-in adapter before accepting any hardware requirement. Not a normal app-level API and not yet a proven shipping tier. |
 | `[Tier B-lite fallback]` — first-class supported mode | Desktop keeps full control + history; audio goes to any commodity Bluetooth speakerphone or earbuds paired to the phone | Feasible today with zero desktop Bluetooth work; the supported answer wherever Tier B hardware or OS support is absent. |
 | `[Tier C — needs vendor support]` — sanctioned platform audio | A hypothetical AOSP/OEM "call-audio companion" API — the capability class Android Auto uses | Not feasible today for third-party apps; roadmap advocacy only. The architecture keeps a drop-in media-backend seam for it (ADR-0010). |
 
@@ -77,6 +78,11 @@ In file-level docstrings inherited from [REPO-STRUCTURE.md](REPO-STRUCTURE.md), 
 shorthand for the whole Tier B family — `[Tier B — Linux]`, `[Tier B — Win/macOS USB dongle]` and
 `[Tier B-lite fallback]` — and `[Tier A/B]` marks a seam used by both tiers. Authored prose always
 uses the five exact tags.
+
+The Windows software-audio track above carries no tier tag on purpose: it is a phase-gated
+investigation (ADR-0011), not a proven tier. It earns a tag only if the spike in
+[17-windows-software-audio.md](17-windows-software-audio.md) passes, at which point it becomes the
+preferred Windows member of the Tier B family and the tag vocabulary is amended in one place here.
 
 ## Non-goals
 
@@ -124,7 +130,7 @@ ADR-0002.
 | [05-bluetooth-hfp.md](05-bluetooth-hfp.md), [06-transport-and-protocol.md](06-transport-and-protocol.md), [07-pairing-and-auth.md](07-pairing-and-auth.md), [08-security-and-encryption.md](08-security-and-encryption.md), [09-data-models.md](09-data-models.md) | Deep dives: media plane, control protocol, trust establishment, threat model, storage. |
 | [10-sequence-diagrams.md](10-sequence-diagrams.md), [11-api-reference.md](11-api-reference.md), [12-permissions-and-platform.md](12-permissions-and-platform.md) | Reference: end-to-end flows, interface contracts, the permission matrix. |
 | [13-build-and-setup.md](13-build-and-setup.md), [14-coding-conventions.md](14-coding-conventions.md), [15-testing-strategy.md](15-testing-strategy.md) | Working on the repo: toolchains, conventions, tests. |
-| [16-roadmap.md](16-roadmap.md), [adr/](adr/) | Where this goes next, and why each binding decision was made. |
+| [16-roadmap.md](16-roadmap.md), [17-windows-software-audio.md](17-windows-software-audio.md), [adr/](adr/) | Where this goes next, the Windows-only no-extra-hardware audio track, and why each binding decision was made. |
 
 [REPO-STRUCTURE.md](REPO-STRUCTURE.md) is the canonical file inventory; the protobuf files under
 `/proto/tandem/v1/` are the canonical wire schema, embedded verbatim only in
