@@ -1,0 +1,88 @@
+// Call-control requests (desktop -> phone) and call-plane events
+// (phone -> desktop) for TLP v1. All user intent flows over these messages;
+// the desktop never issues HFP AT call-control commands (see docs/05).
+
+syntax = "proto3";
+
+package tandem.v1;
+
+import "tandem/v1/common.proto";
+
+option java_package = "com.tandem.gateway.proto.v1";
+option java_multiple_files = true;
+
+// ---- Requests (desktop -> phone). Non-idempotent unless noted. ----
+
+message DialRequest {
+  string number = 1;                // Raw dial string; phone normalizes and guards emergencies.
+  int32 sim_slot = 2;               // 0-based; -1 = default SIM.
+}
+
+message AnswerRequest {
+  string call_id = 1;
+}
+
+message RejectRequest {
+  string call_id = 1;
+}
+
+message EndRequest {
+  string call_id = 1;
+}
+
+// Idempotent: sets absolute mute state of the phone microphone path.
+message MuteRequest {
+  bool muted = 1;
+}
+
+// Idempotent: holding an already-held call is an OK no-op.
+message HoldRequest {
+  string call_id = 1;
+}
+
+// Idempotent: unholding an active call is an OK no-op.
+message UnholdRequest {
+  string call_id = 1;
+}
+
+message MergeRequest {
+  string call_id = 1;               // Call to merge from (typically the active call).
+  string other_call_id = 2;         // Call to merge with; empty = the single held call.
+}
+
+message SendDtmfRequest {
+  string call_id = 1;
+  string digits = 2;                // 0-9, *, #, A-D; played sequentially by Telecom.
+}
+
+// Idempotent: requests an absolute audio route on the phone.
+message AudioRouteRequest {
+  AudioRoute route = 1;
+  string bt_device_address = 2;     // Required when route = AUDIO_ROUTE_BLUETOOTH.
+}
+
+// Generic response for requests without a typed response body.
+message Ack {
+  Status status = 1;
+}
+
+// ---- Events (phone -> desktop). ----
+
+message IncomingCallEvent {
+  CallInfo call = 1;
+  string epoch_id = 2;
+  uint64 state_seq = 3;
+}
+
+// Emitted on every telecom state transition; carries the full snapshot so
+// desktops converge without delta bookkeeping.
+message CallStateChangedEvent {
+  CallSnapshot snapshot = 1;
+}
+
+message AudioRouteChangedEvent {
+  AudioRoute route = 1;
+  string bt_device_address = 2;
+  string epoch_id = 3;
+  uint64 state_seq = 4;
+}
