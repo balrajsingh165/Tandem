@@ -2,10 +2,10 @@
 
 ## Context
 
-The current media roadmap treats Windows and macOS desktop audio as `[Tier B - Win/macOS USB
-dongle]`: Tandem owns a dedicated Bluetooth controller and implements the HFP host stack above
-raw HCI. That path is technically clean but violates the Windows-only product goal of no extra
-hardware.
+The current media roadmap treats Windows and macOS desktop audio as
+`[Tier B — Win/macOS USB dongle]`: Tandem owns a dedicated Bluetooth controller and implements the
+HFP host stack above raw HCI. That path is technically clean but violates the Windows-only product
+goal of no extra hardware.
 
 The Android side still cannot supply call audio over LAN. Stock non-rooted Android does not give
 third-party apps a carrier-call downlink capture API or cellular uplink injection API. The phone's

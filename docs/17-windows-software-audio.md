@@ -153,7 +153,7 @@ USB controller.
 
 If the spike passes, update the architecture documents as follows:
 
-- Replace the Windows part of `[Tier B - Win/macOS USB dongle]` with a Windows native profile
+- Replace the Windows part of `[Tier B — Win/macOS USB dongle]` with a Windows native profile
   backend.
 - Keep the USB-dongle backend only as an optional fallback or remove it from the Windows roadmap.
 - Drop macOS from the committed Tier B roadmap unless a separate macOS software strategy is chosen.
