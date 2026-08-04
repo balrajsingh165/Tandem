@@ -1,0 +1,97 @@
+// Shared enums and value types for the Tandem LAN Protocol (TLP) v1.
+// Single source of truth: generated into Kotlin (protobuf-gradle-plugin) and
+// Rust (prost via tandem_proto). Never hand-duplicate these types.
+
+syntax = "proto3";
+
+package tandem.v1;
+
+option java_package = "com.tandem.gateway.proto.v1";
+option java_multiple_files = true;
+
+// Result codes for every request/response boundary in TLP.
+enum ErrorCode {
+  ERROR_CODE_UNSPECIFIED = 0;
+  ERROR_CODE_OK = 1;
+  ERROR_CODE_UNAUTHENTICATED = 2;
+  ERROR_CODE_VERSION_UNSUPPORTED = 3;
+  ERROR_CODE_CALL_NOT_FOUND = 4;
+  ERROR_CODE_INVALID_CALL_STATE = 5;
+  ERROR_CODE_EMERGENCY_NUMBER_BLOCKED = 6;
+  ERROR_CODE_ALREADY_HANDLED = 7;
+  ERROR_CODE_RATE_LIMITED = 8;
+  ERROR_CODE_TELECOM_FAILURE = 9;
+  ERROR_CODE_AUDIO_ROUTE_UNAVAILABLE = 10;
+  ERROR_CODE_PAIRING_REJECTED = 11;
+  ERROR_CODE_INTERNAL = 12;
+}
+
+// Mirrors android.telecom.Call states; the phone is the source of truth.
+enum CallState {
+  CALL_STATE_UNSPECIFIED = 0;
+  CALL_STATE_CONNECTING = 1;
+  CALL_STATE_DIALING = 2;
+  CALL_STATE_RINGING = 3;
+  CALL_STATE_ACTIVE = 4;
+  CALL_STATE_HOLDING = 5;
+  CALL_STATE_DISCONNECTING = 6;
+  CALL_STATE_DISCONNECTED = 7;
+}
+
+enum CallDirection {
+  CALL_DIRECTION_UNSPECIFIED = 0;
+  CALL_DIRECTION_INCOMING = 1;
+  CALL_DIRECTION_OUTGOING = 2;
+}
+
+enum DisconnectCause {
+  DISCONNECT_CAUSE_UNSPECIFIED = 0;
+  DISCONNECT_CAUSE_LOCAL_HANGUP = 1;
+  DISCONNECT_CAUSE_REMOTE_HANGUP = 2;
+  DISCONNECT_CAUSE_BUSY = 3;
+  DISCONNECT_CAUSE_MISSED = 4;
+  DISCONNECT_CAUSE_REJECTED = 5;
+  DISCONNECT_CAUSE_CANCELED = 6;
+  DISCONNECT_CAUSE_ERROR = 7;
+}
+
+// Where the phone is currently rendering call audio.
+enum AudioRoute {
+  AUDIO_ROUTE_UNSPECIFIED = 0;
+  AUDIO_ROUTE_EARPIECE = 1;
+  AUDIO_ROUTE_SPEAKER = 2;
+  AUDIO_ROUTE_WIRED_HEADSET = 3;
+  AUDIO_ROUTE_BLUETOOTH = 4;
+}
+
+// Generic operation result attached to acks and typed responses.
+message Status {
+  ErrorCode code = 1;
+  string message = 2;
+}
+
+// One live (or just-disconnected) call as known to Android Telecom.
+message CallInfo {
+  string call_id = 1;               // Stable id minted by the phone gateway.
+  CallState state = 2;
+  CallDirection direction = 3;
+  string remote_number = 4;         // E.164 where resolvable; may be empty (private).
+  string remote_display_name = 5;   // Contact name resolved on the phone; may be empty.
+  int64 started_at_ms = 6;          // Unix ms; 0 until the call leaves CONNECTING/RINGING.
+  bool is_conference = 7;
+  bool can_hold = 8;
+  bool can_merge = 9;
+  bool is_emergency = 10;           // Read-only surfacing; remote control is refused.
+  DisconnectCause disconnect_cause = 11;  // Set only in DISCONNECTED state.
+  int32 sim_slot = 12;              // 0-based; -1 when unknown/single-SIM.
+}
+
+// Full authoritative call-plane state, versioned for resumption.
+message CallSnapshot {
+  string epoch_id = 1;              // UUID minted at each phone-gateway process start.
+  uint64 state_seq = 2;             // Monotonic within an epoch.
+  repeated CallInfo calls = 3;
+  AudioRoute audio_route = 4;
+  bool microphone_muted = 5;
+  string bt_route_address = 6;      // MAC of the active BT audio device, if route is Bluetooth.
+}
