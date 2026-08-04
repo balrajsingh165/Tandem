@@ -551,6 +551,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "tandem_transport"
+version = "0.1.0"
+dependencies = [
+ "prost",
+ "tandem_core",
+ "tandem_crypto",
+ "tandem_proto",
+ "thiserror",
+]
+
+[[package]]
 name = "tempfile"
 version = "3.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

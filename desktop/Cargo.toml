@@ -4,7 +4,13 @@
 
 [workspace]
 resolver = "2"
-members = ["crates/proto", "crates/core", "crates/crypto", "crates/pairing"]
+members = [
+    "crates/proto",
+    "crates/core",
+    "crates/crypto",
+    "crates/pairing",
+    "crates/transport",
+]
 
 [workspace.package]
 version = "0.1.0"

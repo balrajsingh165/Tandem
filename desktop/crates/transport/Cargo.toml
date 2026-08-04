@@ -1,0 +1,16 @@
+# Manifest for tandem_transport: tokio, tokio-tungstenite, rustls, mdns-sd, and
+# tandem_proto dependencies for the LAN control-plane client.
+
+[package]
+name = "tandem_transport"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+tandem_proto = { path = "../proto" }
+tandem_core = { path = "../core" }
+tandem_crypto = { path = "../crypto" }
+prost.workspace = true
+thiserror.workspace = true
