@@ -18,10 +18,14 @@ import com.tandem.gateway.domain.port.ServerStatus
 import com.tandem.gateway.domain.port.SessionInfo
 import com.tandem.gateway.domain.port.TransportError
 import com.tandem.gateway.domain.usecase.ObserveCallState
+import com.tandem.gateway.pairing.PairingCandidate
+import com.tandem.gateway.pairing.PairingManagerImpl
 import com.tandem.gateway.proto.v1.CallLogChangedEvent
 import com.tandem.gateway.proto.v1.CallStateChangedEvent
 import com.tandem.gateway.proto.v1.Envelope
 import com.tandem.gateway.proto.v1.ErrorCode
+import com.tandem.gateway.proto.v1.PairingAwaitConfirmEvent
+import com.tandem.gateway.proto.v1.PairingDecision
 import com.tandem.gateway.proto.v1.SessionWelcome
 import java.net.ServerSocket
 import java.security.cert.X509Certificate
@@ -49,6 +53,7 @@ class LanServerImpl @Inject constructor(
     private val pairedDeviceRepository: PairedDeviceRepository,
     private val identityStore: IdentityStore,
     private val controlPlaneRouter: ControlPlaneRouter,
+    private val pairingManager: PairingManagerImpl,
     private val observeCallState: ObserveCallState,
     private val callLogRepository: CallLogRepository,
     private val emergencyNumberSource: EmergencyNumberSource,
@@ -128,19 +133,27 @@ class LanServerImpl @Inject constructor(
             }
             WebSocketFraming.writeUpgradeResponse(output, upgrade.key)
 
-            val hello = codec.decode(WebSocketFraming.readFrame(input).payload)
-            if (!hello.hasSessionHello()) {
+            val first = codec.decode(WebSocketFraming.readFrame(input).payload)
+
+            // An unknown key that got past TLS can only be a provisional pairing
+            // peer, and pairing never yields a control session on this connection.
+            if (first.hasPairingRequest()) {
+                servePairing(first, peerCert, fingerprint, output)
+                socket.close()
+                return
+            }
+
+            if (!first.hasSessionHello()) {
                 socket.close()
                 return
             }
 
             val paired = pairedDeviceRepository.byPinnedKey(fingerprint)
             if (paired == null || paired.revoked) {
-                // An unknown key that got past TLS is a provisional pairing peer;
-                // it is not a control session and must not receive call state.
                 socket.close()
                 return
             }
+            val hello = first
 
             val active = DesktopSession(
                 deviceId = paired.deviceId,
@@ -175,6 +188,102 @@ class LanServerImpl @Inject constructor(
             session?.close()
             runCatching { socket.close() }
         }
+    }
+
+    /**
+     * Runs one pairing candidacy on a provisional connection: bind the presented
+     * certificate to the TLS layer, consume the one-time token, ask the user, and
+     * report the verdict. Nothing is persisted unless the user allows it.
+     */
+    private suspend fun servePairing(
+        envelope: Envelope,
+        peerCert: X509Certificate,
+        fingerprint: String,
+        output: java.io.OutputStream,
+    ) {
+        val request = envelope.pairingRequest
+
+        // The certificate in the payload must be the one that completed the TLS
+        // handshake, or an attacker could pair someone else's key (docs/07).
+        val bound = request.desktopCertDer.toByteArray().contentEquals(peerCert.encoded)
+        if (!bound) {
+            writeDecision(output, envelope.messageId, ErrorCode.ERROR_CODE_PAIRING_REJECTED, null)
+            return
+        }
+
+        val candidate = PairingCandidate(
+            desktopName = request.desktopName,
+            desktopPlatform = request.desktopPlatform,
+            certDer = request.desktopCertDer.toByteArray(),
+            spkiSha256 = fingerprint,
+            protocolMin = request.protocolMin,
+            protocolMax = request.protocolMax,
+        )
+
+        val presented = pairingManager.presentCandidate(
+            token = request.pairingToken,
+            presented = candidate,
+            shortCode = null,
+        )
+        if (presented.isFailure) {
+            writeDecision(output, envelope.messageId, ErrorCode.ERROR_CODE_PAIRING_REJECTED, null)
+            return
+        }
+
+        // Tell the desktop to show its progress state while the user decides.
+        writeFrame(
+            output,
+            Envelope.newBuilder()
+                .setProtocolVersion(EnvelopeCodec.PROTOCOL_VERSION)
+                .setPairingAwaitConfirmEvent(
+                    PairingAwaitConfirmEvent.newBuilder().setRequireShortCode(false).build(),
+                )
+                .build(),
+        )
+
+        val decided = pairingManager.awaitVerdict()
+        val desktop = decided.getOrNull()
+        if (desktop == null) {
+            writeDecision(output, envelope.messageId, ErrorCode.ERROR_CODE_PAIRING_REJECTED, null)
+            return
+        }
+
+        // PairDesktop persists on the user's acceptance; the server only reports
+        // the verdict, so the row has exactly one writer.
+        writeDecision(output, envelope.messageId, ErrorCode.ERROR_CODE_OK, desktop.deviceId)
+    }
+
+    private suspend fun writeDecision(
+        output: java.io.OutputStream,
+        inReplyTo: Long,
+        code: ErrorCode,
+        assignedDeviceId: String?,
+    ) {
+        val identity = identityStore.identity().getOrNull()
+        val decision = PairingDecision.newBuilder()
+            .setStatus(codec.status(code))
+            .setDesktopDeviceId(assignedDeviceId.orEmpty())
+            .setPhoneDeviceId(identity?.deviceId.orEmpty())
+            .setPhoneName(identity?.displayName.orEmpty())
+            .setProtocolVersion(EnvelopeCodec.PROTOCOL_VERSION)
+            .build()
+
+        writeFrame(
+            output,
+            Envelope.newBuilder()
+                .setProtocolVersion(EnvelopeCodec.PROTOCOL_VERSION)
+                .setInReplyTo(inReplyTo)
+                .setPairingDecision(decision)
+                .build(),
+        )
+    }
+
+    private fun writeFrame(output: java.io.OutputStream, envelope: Envelope) {
+        WebSocketFraming.writeFrame(
+            output,
+            WebSocketFraming.OPCODE_BINARY,
+            codec.encode(envelope),
+        )
     }
 
     private suspend fun pump(session: DesktopSession, input: java.io.InputStream) {

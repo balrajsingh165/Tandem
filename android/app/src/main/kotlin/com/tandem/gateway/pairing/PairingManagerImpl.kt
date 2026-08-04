@@ -6,6 +6,7 @@
 package com.tandem.gateway.pairing
 
 import com.tandem.gateway.crypto.TlsServerFactory
+import com.tandem.gateway.domain.model.DesktopPlatform
 import com.tandem.gateway.domain.model.PairedDesktop
 import com.tandem.gateway.domain.port.IdentityStore
 import com.tandem.gateway.domain.port.PairingError
@@ -14,14 +15,34 @@ import com.tandem.gateway.domain.port.PairingManager
 import com.tandem.gateway.domain.port.PairingWindowState
 import com.tandem.gateway.domain.port.SettingsRepository
 import java.security.SecureRandom
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+
+/** A desktop that presented a valid token and is awaiting the user's verdict. */
+data class PairingCandidate(
+    val desktopName: String,
+    val desktopPlatform: String,
+    val certDer: ByteArray,
+    val spkiSha256: String,
+    val protocolMin: Int,
+    val protocolMax: Int,
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is PairingCandidate) return false
+        return spkiSha256 == other.spkiSha256 && certDer.contentEquals(other.certDer)
+    }
+
+    override fun hashCode(): Int = 31 * spkiSha256.hashCode() + certDer.contentHashCode()
+}
 
 @Singleton
 class PairingManagerImpl @Inject constructor(
@@ -36,7 +57,8 @@ class PairingManagerImpl @Inject constructor(
 
     private val mutex = Mutex()
     private var session: PairingSession? = null
-    private var candidate: PairedDesktop? = null
+    private var candidate: PairingCandidate? = null
+    private var verdict: CompletableDeferred<PairedDesktop?>? = null
 
     override suspend fun openWindow(ttlSeconds: Int): Result<PairingInvitation> = mutex.withLock {
         if (session != null) return Result.failure(PairingError.WindowBusy)
@@ -66,42 +88,96 @@ class PairingManagerImpl @Inject constructor(
         Result.success(invitation)
     }
 
-    override suspend fun closeWindow() = mutex.withLock {
-        session?.expire()
-        session = null
-        candidate = null
-        tlsServerFactory.setPairingWindowOpen(false)
-        _state.value = PairingWindowState.Closed
+    override suspend fun closeWindow() = mutex.withLock { teardown(null) }
+
+    /**
+     * Called from the LAN accept path when a provisional peer presents a token.
+     * Consumes the token whether or not it matched, so a leaked code cannot be
+     * retried.
+     */
+    suspend fun presentCandidate(
+        token: String,
+        presented: PairingCandidate,
+        shortCode: String?,
+    ): Result<Unit> = mutex.withLock {
+        val active = session ?: return Result.failure(PairingError.WindowBusy)
+        if (candidate != null) return Result.failure(PairingError.WindowBusy)
+
+        active.presentToken(token, System.currentTimeMillis())
+            .onFailure { cause ->
+                teardown(cause as? PairingError ?: PairingError.TokenMismatch)
+                return Result.failure(cause)
+            }
+
+        candidate = presented
+        verdict = CompletableDeferred()
+        _state.value = PairingWindowState.AwaitingConfirmation(
+            desktopName = presented.desktopName,
+            desktopPlatform = presented.desktopPlatform,
+            fingerprint = presented.spkiSha256,
+            shortCode = shortCode,
+        )
+        Result.success(Unit)
+    }
+
+    /** Suspends until the user taps allow or deny, or the window is torn down. */
+    suspend fun awaitVerdict(): Result<PairedDesktop> {
+        val pending = mutex.withLock { verdict } ?: return Result.failure(PairingError.WindowBusy)
+        val accepted = pending.await() ?: return Result.failure(PairingError.RejectedByUser)
+        return Result.success(accepted)
     }
 
     override suspend fun submitDecision(accept: Boolean): Result<PairedDesktop?> = mutex.withLock {
         val active = session ?: return Result.failure(PairingError.WindowBusy)
+        val presented = candidate ?: return Result.failure(PairingError.WindowBusy)
 
-        val result = if (accept) {
-            active.accept().map { candidate }
-        } else {
-            active.reject().map { null }
+        if (!accept) {
+            active.reject()
+            verdict?.complete(null)
+            teardown(PairingError.RejectedByUser)
+            return Result.success(null)
         }
 
-        session = null
-        tlsServerFactory.setPairingWindowOpen(false)
-        _state.value = result.fold(
-            onSuccess = { desktop ->
-                if (desktop != null) {
-                    PairingWindowState.Completed(desktop)
-                } else {
-                    PairingWindowState.Closed
-                }
-            },
-            onFailure = { cause ->
-                PairingWindowState.Failed(cause as? PairingError ?: PairingError.RejectedByUser)
-            },
+        active.accept().onFailure { cause ->
+            verdict?.complete(null)
+            teardown(cause as? PairingError ?: PairingError.RejectedByUser)
+            return Result.failure(cause)
+        }
+
+        val now = System.currentTimeMillis()
+        val desktop = PairedDesktop(
+            deviceId = UUID.randomUUID().toString(),
+            name = presented.desktopName,
+            platform = DesktopPlatform.fromWire(presented.desktopPlatform),
+            spkiSha256 = presented.spkiSha256,
+            certDer = presented.certDer,
+            btMacAddress = null,
+            createdAtMs = now,
+            lastSeenAtMs = now,
+            revoked = false,
         )
+
+        verdict?.complete(desktop)
+        session = null
         candidate = null
-        result
+        verdict = null
+        tlsServerFactory.setPairingWindowOpen(false)
+        _state.value = PairingWindowState.Completed(desktop)
+        Result.success(desktop)
     }
 
     fun qrPayload(invitation: PairingInvitation): String = qrPayloadCodec.encode(invitation)
+
+    /** Closes the window and releases any waiter, so no caller hangs forever. */
+    private fun teardown(error: PairingError?) {
+        session?.expire()
+        session = null
+        candidate = null
+        verdict?.complete(null)
+        verdict = null
+        tlsServerFactory.setPairingWindowOpen(false)
+        _state.value = error?.let { PairingWindowState.Failed(it) } ?: PairingWindowState.Closed
+    }
 
     private fun generateToken(): String {
         val bytes = ByteArray(TOKEN_BYTES)
