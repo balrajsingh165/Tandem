@@ -545,6 +545,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "tandem_daemon"
+version = "0.1.0"
+dependencies = [
+ "tandem_audio",
+ "tandem_bluetooth",
+ "tandem_core",
+ "tandem_crypto",
+ "tandem_ipc",
+ "tandem_pairing",
+ "tandem_proto",
+ "tandem_testkit",
+ "tandem_transport",
+ "thiserror",
+]
+
+[[package]]
 name = "tandem_ipc"
 version = "0.1.0"
 dependencies = [

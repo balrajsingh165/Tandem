@@ -1,0 +1,27 @@
+# Manifest for tandem-daemon: assembles core, transport, pairing, crypto, audio,
+# bluetooth, and ipc into the headless desktop service binary.
+
+[package]
+name = "tandem_daemon"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "tandem-daemon"
+path = "src/main.rs"
+
+[dependencies]
+tandem_audio = { path = "../crates/audio" }
+tandem_bluetooth = { path = "../crates/bluetooth" }
+tandem_core = { path = "../crates/core" }
+tandem_crypto = { path = "../crates/crypto" }
+tandem_ipc = { path = "../crates/ipc" }
+tandem_pairing = { path = "../crates/pairing" }
+tandem_proto = { path = "../crates/proto" }
+tandem_transport = { path = "../crates/transport" }
+thiserror.workspace = true
+
+[dev-dependencies]
+tandem_testkit = { path = "../crates/testkit" }
