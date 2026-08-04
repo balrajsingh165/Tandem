@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  All user-visible strings for the gateway app, including the emergency-call
+  refusal copy mandated by docs/08 and ADR-0008.
+-->
+<resources>
+    <string name="app_name">Tandem Gateway</string>
+
+    <string name="status_title">Gateway status</string>
+    <string name="status_dialer_role_held">Tandem is your phone app</string>
+    <string name="status_dialer_role_missing">Tandem must be your phone app to work</string>
+    <string name="status_dialer_role_action">Make Tandem the phone app</string>
+    <string name="status_listener_running">Listening for computers on this network</string>
+    <string name="status_listener_stopped">Not listening</string>
+    <string name="status_connected_desktops">Connected computers: %1$d</string>
+    <string name="status_audio_route">Call audio: %1$s</string>
+
+    <string name="emergency_policy_notice">Emergency calls are never placed from a computer. Dial them on this phone, which can share your location with emergency services.</string>
+    <string name="emergency_blocked_toast">%1$s is an emergency number. Dial it on this phone.</string>
+    <string name="emergency_read_only">Emergency call in progress. Remote control is disabled.</string>
+
+    <string name="pairing_title">Pair a computer</string>
+    <string name="pairing_scan_instruction">Scan this code with Tandem on your computer.</string>
+    <string name="pairing_manual_instruction">Or enter these details on the computer manually.</string>
+    <string name="pairing_expires_in">Code expires in %1$d seconds</string>
+    <string name="pairing_confirm_title">Allow this computer?</string>
+    <string name="pairing_confirm_body">%1$s (%2$s) wants to control calls on this phone.</string>
+    <string name="pairing_short_code_prompt">Confirm both screens show this code:</string>
+    <string name="pairing_accept">Allow</string>
+    <string name="pairing_reject">Deny</string>
+
+    <string name="settings_title">Settings</string>
+    <string name="settings_paired_devices">Paired computers</string>
+    <string name="settings_revoke">Remove</string>
+    <string name="settings_revoke_confirm">Remove %1$s? It loses access immediately and must pair again.</string>
+    <string name="settings_autostart">Start automatically after restart</string>
+    <string name="settings_device_name">This phone\'s name</string>
+    <string name="settings_port">Listening port</string>
+
+    <string name="call_answer">Answer</string>
+    <string name="call_decline">Decline</string>
+    <string name="call_end">End</string>
+    <string name="call_mute">Mute</string>
+    <string name="call_unmute">Unmute</string>
+    <string name="call_hold">Hold</string>
+    <string name="call_resume">Resume</string>
+    <string name="call_merge">Merge</string>
+    <string name="call_keypad">Keypad</string>
+    <string name="call_incoming">Incoming call</string>
+    <string name="call_unknown_number">Unknown number</string>
+
+    <string name="notification_channel_gateway">Gateway status</string>
+    <string name="notification_channel_calls">Calls</string>
+    <string name="notification_gateway_title">Tandem is running</string>
+    <string name="notification_gateway_body">Ready for calls from your computer</string>
+
+    <string name="dialpad_title">Dial</string>
+    <string name="dialpad_call">Call</string>
+    <string name="dialpad_delete">Delete</string>
+</resources>
