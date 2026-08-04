@@ -1,6 +1,6 @@
-//! tandem_transport: discovery, connection, and codec for TLP v1 over WebSocket
-//! + mutual TLS 1.3. Exposes the TransportClient trait (docs/11) so core and
-//! tests never touch sockets directly.
+//! tandem_transport: discovery, connection, and codec for TLP v1 over WebSocket +
+//! mutual TLS 1.3. Exposes the TransportClient trait (docs/11) so core and tests
+//! never touch sockets directly.
 
 pub mod client;
 pub mod codec;

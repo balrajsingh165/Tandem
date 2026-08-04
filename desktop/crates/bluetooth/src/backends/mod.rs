@@ -81,15 +81,14 @@ mod tests {
 
     #[test]
     fn auto_never_resolves_to_a_backend_this_build_lacks() {
-        let resolved = BackendKind::Auto.resolve();
-        match resolved {
-            BackendKind::LinuxBluez => {
-                assert!(cfg!(all(target_os = "linux", feature = "linux_bluez")))
-            }
-            BackendKind::UsbDongle => assert!(cfg!(feature = "usb_dongle")),
-            BackendKind::Null => {}
-            BackendKind::Auto => panic!("Auto must resolve to a concrete backend"),
-        }
+        let expected = if cfg!(all(target_os = "linux", feature = "linux_bluez")) {
+            BackendKind::LinuxBluez
+        } else if cfg!(feature = "usb_dongle") {
+            BackendKind::UsbDongle
+        } else {
+            BackendKind::Null
+        };
+        assert_eq!(BackendKind::Auto.resolve(), expected);
     }
 
     #[test]

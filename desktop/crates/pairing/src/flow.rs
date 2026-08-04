@@ -105,7 +105,10 @@ mod tests {
         f.begin_connect();
         assert_eq!(*f.state(), PairingState::Connecting);
         f.await_confirmation(None);
-        assert!(matches!(f.state(), PairingState::AwaitingConfirmation { .. }));
+        assert!(matches!(
+            f.state(),
+            PairingState::AwaitingConfirmation { .. }
+        ));
         f.accept(PairedPhoneRecord {
             desktop_device_id: "d1".into(),
             phone_device_id: "p1".into(),

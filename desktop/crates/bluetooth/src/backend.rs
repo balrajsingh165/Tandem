@@ -27,13 +27,22 @@ pub struct AdapterInfo {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BackendEvent {
     AdapterChanged(AdapterInfo),
-    BondingChanged { address: String, bonded: bool },
-    RfcommConnected { address: String },
-    RfcommDisconnected { address: String },
+    BondingChanged {
+        address: String,
+        bonded: bool,
+    },
+    RfcommConnected {
+        address: String,
+    },
+    RfcommDisconnected {
+        address: String,
+    },
     ScoStateChanged(ScoState),
     /// The link dropped mid-call. The daemon reports this and lets the phone fall
     /// back to its earpiece; it never ends the cellular call (docs/05).
-    LinkLost { reason: String },
+    LinkLost {
+        reason: String,
+    },
 }
 
 /// Every OS-specific implementation sits behind this trait, so the HFP core and

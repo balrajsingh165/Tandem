@@ -50,8 +50,12 @@ mod tests {
     #[test]
     fn produces_silence_and_swallows_playback() {
         let mut backend = NullAudioBackend::default();
-        backend.open_capture(StreamFormat::for_rate(16_000)).unwrap();
-        backend.open_playback(StreamFormat::for_rate(16_000)).unwrap();
+        backend
+            .open_capture(StreamFormat::for_rate(16_000))
+            .unwrap();
+        backend
+            .open_playback(StreamFormat::for_rate(16_000))
+            .unwrap();
 
         let mut out = [7i16; 16];
         assert_eq!(backend.read_capture(&mut out).unwrap(), 16);

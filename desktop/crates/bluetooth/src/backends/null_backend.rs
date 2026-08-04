@@ -79,7 +79,10 @@ mod tests {
             b.connect_rfcomm("AA:BB:CC:DD:EE:FF").unwrap_err(),
             BluetoothError::NoAdapter
         );
-        assert_eq!(b.open_sco(Codec::Cvsd).unwrap_err(), BluetoothError::NoAdapter);
+        assert_eq!(
+            b.open_sco(Codec::Cvsd).unwrap_err(),
+            BluetoothError::NoAdapter
+        );
         assert!(!b.is_bonded("AA:BB:CC:DD:EE:FF").unwrap());
     }
 

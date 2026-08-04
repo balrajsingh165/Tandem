@@ -20,10 +20,7 @@ pub enum LanCallView {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MirrorCheck {
     Consistent,
-    Diverged {
-        lan: LanCallView,
-        hfp: HfpCallView,
-    },
+    Diverged { lan: LanCallView, hfp: HfpCallView },
 }
 
 impl MirrorCheck {

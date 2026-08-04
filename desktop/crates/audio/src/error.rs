@@ -40,14 +40,23 @@ mod tests {
 
     #[test]
     fn xruns_and_stream_faults_justify_a_rebuild() {
-        assert!(AudioError::Xrun { direction: "capture" }.is_recoverable());
+        assert!(AudioError::Xrun {
+            direction: "capture"
+        }
+        .is_recoverable());
         assert!(AudioError::Stream("device reset".into()).is_recoverable());
     }
 
     #[test]
     fn missing_devices_and_formats_are_not_recoverable_by_retry() {
-        assert!(!AudioError::NoDevice { direction: "playback" }.is_recoverable());
-        assert!(!AudioError::FormatUnsupported { requested_hz: 16_000 }.is_recoverable());
+        assert!(!AudioError::NoDevice {
+            direction: "playback"
+        }
+        .is_recoverable());
+        assert!(!AudioError::FormatUnsupported {
+            requested_hz: 16_000
+        }
+        .is_recoverable());
         assert!(!AudioError::BackendUnavailable.is_recoverable());
     }
 }

@@ -66,10 +66,12 @@ impl CallController {
                 _ => Vec::new(),
             },
             PhoneEvent::CallLogChanged { .. } => {
-                vec![ControllerOutput::SendRequest(OutboundRequest::SyncCallLog {
-                    since_ms: 0,
-                    max_entries: 200,
-                })]
+                vec![ControllerOutput::SendRequest(
+                    OutboundRequest::SyncCallLog {
+                        since_ms: 0,
+                        max_entries: 200,
+                    },
+                )]
             }
             PhoneEvent::Revoked { reason } => {
                 self.mirror = None;

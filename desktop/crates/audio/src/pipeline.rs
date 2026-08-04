@@ -108,11 +108,19 @@ mod tests {
 
     #[test]
     fn latency_budget_flags_excursions_beyond_expectations() {
-        let good = LatencyBudget { capture_ms: 20, playback_ms: 20, link_ms: 30 };
+        let good = LatencyBudget {
+            capture_ms: 20,
+            playback_ms: 20,
+            link_ms: 30,
+        };
         assert_eq!(good.total_ms(), 70);
         assert!(good.is_within_expected());
 
-        let bad = LatencyBudget { capture_ms: 60, playback_ms: 40, link_ms: 30 };
+        let bad = LatencyBudget {
+            capture_ms: 60,
+            playback_ms: 40,
+            link_ms: 30,
+        };
         assert!(!bad.is_within_expected());
     }
 

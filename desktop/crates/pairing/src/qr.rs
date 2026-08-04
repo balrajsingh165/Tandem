@@ -107,7 +107,10 @@ mod tests {
 
     #[test]
     fn rejects_non_tandem_and_empty_fields() {
-        assert_eq!(QrPayload::parse("https://example.com"), Err(PairingError::InvalidQr));
+        assert_eq!(
+            QrPayload::parse("https://example.com"),
+            Err(PairingError::InvalidQr)
+        );
         let json = valid_json(&fp()).replace(r#""port":46521"#, r#""port":0"#);
         assert_eq!(QrPayload::parse(&json), Err(PairingError::InvalidQr));
     }

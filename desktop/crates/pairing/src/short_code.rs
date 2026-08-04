@@ -19,11 +19,7 @@ pub struct ShortCode(String);
 impl ShortCode {
     /// `info` is the phone's SPKI hash followed by the desktop's, so the code is
     /// bound to both identities and to this TLS session's exporter.
-    pub fn derive(
-        tls_exporter: &[u8],
-        phone: &SpkiFingerprint,
-        desktop: &SpkiFingerprint,
-    ) -> Self {
+    pub fn derive(tls_exporter: &[u8], phone: &SpkiFingerprint, desktop: &SpkiFingerprint) -> Self {
         let mut info = Vec::with_capacity(64);
         info.extend_from_slice(phone.as_bytes());
         info.extend_from_slice(desktop.as_bytes());
@@ -103,7 +99,10 @@ mod tests {
     fn substituting_either_identity_changes_the_code() {
         let baseline = ShortCode::derive(&[7u8; 32], &phone(), &desktop());
         let attacker = SpkiFingerprint::from_spki_der(b"attacker-key");
-        assert_ne!(baseline, ShortCode::derive(&[7u8; 32], &attacker, &desktop()));
+        assert_ne!(
+            baseline,
+            ShortCode::derive(&[7u8; 32], &attacker, &desktop())
+        );
         assert_ne!(baseline, ShortCode::derive(&[7u8; 32], &phone(), &attacker));
     }
 }

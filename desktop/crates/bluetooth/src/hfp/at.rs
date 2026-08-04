@@ -17,11 +17,16 @@ pub enum AgResponse {
     /// Current indicator values from `+CIND: 1,0,...`.
     CindValues(Vec<u8>),
     /// `+CIEV: <index>,<value>` — an indicator changed.
-    Ciev { index: usize, value: u8 },
+    Ciev {
+        index: usize,
+        value: u8,
+    },
     /// `+BCS: <codec>` — the AG selected a codec.
     Bcs(u8),
     /// `+CLIP: "<number>",<type>` — calling line identity.
-    Clip { number: String },
+    Clip {
+        number: String,
+    },
     /// `+VGS:`/`+VGM:` — speaker and microphone gain sync.
     SpeakerGain(u8),
     MicrophoneGain(u8),
@@ -197,11 +202,7 @@ mod tests {
                 .unwrap();
         assert_eq!(
             supported,
-            AgResponse::CindSupported(vec![
-                "service".into(),
-                "call".into(),
-                "callsetup".into()
-            ])
+            AgResponse::CindSupported(vec!["service".into(), "call".into(), "callsetup".into()])
         );
 
         assert_eq!(
@@ -225,7 +226,10 @@ mod tests {
     #[test]
     fn parses_codec_gain_and_caller_id() {
         assert_eq!(parse_response("+BCS: 2").unwrap(), AgResponse::Bcs(2));
-        assert_eq!(parse_response("+VGS: 9").unwrap(), AgResponse::SpeakerGain(9));
+        assert_eq!(
+            parse_response("+VGS: 9").unwrap(),
+            AgResponse::SpeakerGain(9)
+        );
         assert_eq!(
             parse_response("+VGM: 12").unwrap(),
             AgResponse::MicrophoneGain(12)

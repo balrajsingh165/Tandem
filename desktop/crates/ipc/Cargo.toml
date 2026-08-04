@@ -1,0 +1,14 @@
+# Manifest for tandem_ipc: serde/serde_json, ts-rs for TypeScript type export,
+# and the platform socket dependencies.
+
+[package]
+name = "tandem_ipc"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true

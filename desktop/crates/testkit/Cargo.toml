@@ -1,0 +1,15 @@
+# Manifest for tandem_testkit: dev-dependency crate providing fakes and
+# fixtures; never shipped in release binaries.
+
+[package]
+name = "tandem_testkit"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+tandem_audio = { path = "../audio" }
+tandem_bluetooth = { path = "../bluetooth" }
+tandem_core = { path = "../core" }
+tandem_proto = { path = "../proto" }

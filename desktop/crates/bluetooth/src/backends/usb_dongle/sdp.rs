@@ -75,7 +75,9 @@ mod tests {
     #[test]
     fn defaults_the_version_when_the_gateway_omits_it() {
         assert_eq!(
-            parse_audio_gateway_record(Some(1), None).unwrap().profile_version,
+            parse_audio_gateway_record(Some(1), None)
+                .unwrap()
+                .profile_version,
             0x0105
         );
     }

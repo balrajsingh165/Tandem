@@ -545,6 +545,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "tandem_ipc"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "tandem_pairing"
 version = "0.1.0"
 dependencies = [
@@ -563,6 +572,16 @@ dependencies = [
  "prost",
  "prost-build",
  "protoc-bin-vendored",
+]
+
+[[package]]
+name = "tandem_testkit"
+version = "0.1.0"
+dependencies = [
+ "tandem_audio",
+ "tandem_bluetooth",
+ "tandem_core",
+ "tandem_proto",
 ]
 
 [[package]]
