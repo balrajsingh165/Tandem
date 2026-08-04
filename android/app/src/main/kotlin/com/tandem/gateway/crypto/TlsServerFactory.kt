@@ -10,7 +10,9 @@ import java.security.KeyStore
 import java.security.cert.X509Certificate
 import javax.inject.Inject
 import javax.inject.Singleton
+import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLServerSocket
 import javax.net.ssl.TrustManager
 import javax.net.ssl.X509TrustManager
 import kotlinx.coroutines.runBlocking
@@ -27,9 +29,31 @@ class TlsServerFactory @Inject constructor(
         pairingWindowOpen = open
     }
 
-    fun createContext(keyStore: KeyStore, keyPassword: CharArray): SSLContext {
-        val keyManagerFactory = javax.net.ssl.KeyManagerFactory
-            .getInstance(javax.net.ssl.KeyManagerFactory.getDefaultAlgorithm())
+    /**
+     * Binds the listening socket. The private key stays inside the Android
+     * Keystore: KeyManagerFactory drives it by handle, so signing happens in the
+     * TEE and the key is never exported (ADR-0006).
+     */
+    fun createServerSocket(port: Int): SSLServerSocket {
+        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+
+        val keyManagerFactory = KeyManagerFactory
+            .getInstance(KeyManagerFactory.getDefaultAlgorithm())
+            .apply { init(keyStore, null) }
+
+        val context = SSLContext.getInstance("TLSv1.3").apply {
+            init(keyManagerFactory.keyManagers, arrayOf<TrustManager>(pinningTrustManager()), null)
+        }
+
+        return (context.serverSocketFactory.createServerSocket(port) as SSLServerSocket).apply {
+            needClientAuth = true
+            enabledProtocols = arrayOf("TLSv1.3")
+        }
+    }
+
+    fun createContext(keyStore: KeyStore, keyPassword: CharArray?): SSLContext {
+        val keyManagerFactory = KeyManagerFactory
+            .getInstance(KeyManagerFactory.getDefaultAlgorithm())
             .apply { init(keyStore, keyPassword) }
 
         return SSLContext.getInstance("TLSv1.3").apply {
@@ -60,6 +84,10 @@ class TlsServerFactory @Inject constructor(
         }
 
         override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
+    }
+
+    private companion object {
+        const val ANDROID_KEYSTORE = "AndroidKeyStore"
     }
 }
 

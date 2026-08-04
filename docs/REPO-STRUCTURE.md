@@ -137,6 +137,7 @@ tandem/
 │           │       │   ├── DesktopSession.kt
 │           │       │   ├── SessionRegistry.kt
 │           │       │   ├── EnvelopeCodec.kt
+│           │       │   ├── WebSocketFraming.kt
 │           │       │   └── ControlPlaneRouter.kt
 │           │       ├── pairing/
 │           │       │   ├── PairingManagerImpl.kt
@@ -177,14 +178,17 @@ tandem/
 │           │           ├── incall/IncomingCallNotifier.kt
 │           │           ├── dialpad/DialpadScreen.kt
 │           │           └── dialpad/DialpadViewModel.kt
-│           └── test/kotlin/com/tandem/gateway/testkit/
-│               ├── FakeTelecomBridge.kt
-│               ├── FakeCallMediaProvider.kt
-│               ├── FakeCallLogRepository.kt
-│               ├── FakePairedDeviceRepository.kt
-│               ├── FakeIdentityStore.kt
-│               ├── FakeSettingsRepository.kt
-│               └── InMemoryLanServer.kt
+│           └── test/kotlin/com/tandem/gateway/
+│               ├── transport/
+│               │   └── WebSocketFramingTest.kt
+│               └── testkit/
+│                   ├── FakeTelecomBridge.kt
+│                   ├── FakeCallMediaProvider.kt
+│                   ├── FakeCallLogRepository.kt
+│                   ├── FakePairedDeviceRepository.kt
+│                   ├── FakeIdentityStore.kt
+│                   ├── FakeSettingsRepository.kt
+│                   └── InMemoryLanServer.kt
 ├── desktop/
 │   ├── Cargo.toml
 │   ├── rust-toolchain.toml
@@ -611,6 +615,11 @@ Entries below beginning `…/` are relative to `android/app/src/main/kotlin/com/
 - **`…/transport/EnvelopeCodec.kt`** — Envelope ↔ domain mapping. `[Tier A]`
   > Encodes/decodes tandem.v1 Envelope frames and maps between generated proto types and
   > domain models. The only Android file that imports generated proto classes (ADR-0009).
+- **`…/transport/WebSocketFraming.kt`** — RFC 6455 handshake and frame codec. `[Tier A]`
+  > RFC 6455 handshake and frame codec for the gateway's WebSocket endpoint,
+  > written against raw streams so the TLS socket can be created from an SSLContext
+  > backed by non-exportable Android Keystore keys (ADR-0006). Pure byte
+  > manipulation; no I/O policy and no protocol semantics.
 - **`…/transport/ControlPlaneRouter.kt`** — Request dispatch to use-cases. `[Tier A]`
   > Routes decoded control-plane requests to their use-cases and maps results onto Ack/typed
   > responses. Pure dispatch: authentication happened at TLS accept, policy lives in
@@ -748,7 +757,13 @@ Entries below beginning `…/` are relative to `android/app/src/main/kotlin/com/
   > ViewModel for DialpadScreen: dial-string editing and PlaceCall dispatch. Note the
   > emergency guard applies only to desktop-originated dials; handset dials pass through.
 
-#### test/testkit — deterministic fakes (unit-test seams)
+#### test — unit tests and deterministic fakes (test seams)
+
+- **`…/transport/WebSocketFramingTest.kt`** — RFC 6455 codec tests.
+  > Unit tests for the RFC 6455 handshake and frame codec: upgrade parsing, the
+  > Sec-WebSocket-Accept derivation, masked client frames, extended payload
+  > lengths, and the protocol violations the gateway must refuse.
+
 
 - **`…/testkit/FakeTelecomBridge.kt`** — Scriptable telecom fake.
   > In-memory TelecomBridge fake: tests script call arrivals and state transitions and assert
