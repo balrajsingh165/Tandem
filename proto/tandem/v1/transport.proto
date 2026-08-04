@@ -1,0 +1,112 @@
+// Session layer and the Envelope frame for TLP v1. Every WebSocket binary
+// frame carries exactly one Envelope; the oneof below is the complete message
+// catalog. Version negotiation happens in SessionHello/SessionWelcome.
+
+syntax = "proto3";
+
+package tandem.v1;
+
+import "tandem/v1/common.proto";
+import "tandem/v1/call.proto";
+import "tandem/v1/calllog.proto";
+import "tandem/v1/pairing.proto";
+
+option java_package = "com.tandem.gateway.proto.v1";
+option java_multiple_files = true;
+
+// First frame from the desktop after TLS establishment (paired sessions).
+message SessionHello {
+  string device_id = 1;             // Desktop device id assigned at pairing.
+  uint32 protocol_min = 2;
+  uint32 protocol_max = 3;
+  string client_name = 4;
+  string bt_adapter_address = 5;    // Desktop BT adapter MAC for HFP routing; may be empty.
+}
+
+// Phone's reply; on OK the session is live and events begin to flow.
+message SessionWelcome {
+  Status status = 1;
+  uint32 protocol_version = 2;      // Chosen version for this session.
+  string phone_device_id = 3;
+  string phone_name = 4;
+  string epoch_id = 5;
+  uint64 state_seq = 6;             // Current head; use Resume to fetch the snapshot.
+  uint64 call_log_version = 7;
+  repeated string emergency_numbers = 8;  // Current SIM/region emergency list for the
+                                          // desktop's local pre-check; the phone-side
+                                          // guard remains authoritative (ADR-0008).
+}
+
+message Heartbeat {
+  uint64 seq = 1;
+}
+
+message HeartbeatAck {
+  uint64 seq = 1;
+}
+
+// Desktop -> phone after (re)connect: reconcile against the source of truth.
+message ResumeRequest {
+  string last_epoch_id = 1;
+  uint64 last_state_seq = 2;
+  uint64 last_call_log_version = 3;
+}
+
+// snapshot_included is true whenever the epoch differs or a gap was detected;
+// the snapshot then replaces all desktop-side call state.
+message ResumeResponse {
+  Status status = 1;
+  bool snapshot_included = 2;
+  CallSnapshot snapshot = 3;
+  uint64 call_log_version = 4;
+}
+
+// The single top-level frame of TLP. message_id is a per-sender monotonic
+// counter that starts at 1 on first pairing and never resets across sessions,
+// so (sender device id, message_id) is unique for the life of the pairing —
+// that is what makes at-most-once dedup work across a reconnect. Responses set
+// in_reply_to to the request's id.
+message Envelope {
+  uint32 protocol_version = 1;
+  uint64 message_id = 2;
+  uint64 in_reply_to = 3;
+
+  oneof payload {
+    // Session control.
+    SessionHello session_hello = 10;
+    SessionWelcome session_welcome = 11;
+    Heartbeat heartbeat = 12;
+    HeartbeatAck heartbeat_ack = 13;
+    ResumeRequest resume_request = 14;
+    ResumeResponse resume_response = 15;
+    Ack ack = 16;
+
+    // Call control (desktop -> phone).
+    DialRequest dial_request = 20;
+    AnswerRequest answer_request = 21;
+    RejectRequest reject_request = 22;
+    EndRequest end_request = 23;
+    MuteRequest mute_request = 24;
+    HoldRequest hold_request = 25;
+    UnholdRequest unhold_request = 26;
+    MergeRequest merge_request = 27;
+    SendDtmfRequest send_dtmf_request = 28;
+    AudioRouteRequest audio_route_request = 29;
+
+    // Call-plane events (phone -> desktop).
+    IncomingCallEvent incoming_call_event = 40;
+    CallStateChangedEvent call_state_changed_event = 41;
+    AudioRouteChangedEvent audio_route_changed_event = 42;
+
+    // Call-log sync.
+    CallLogSyncRequest call_log_sync_request = 50;
+    CallLogSyncResponse call_log_sync_response = 51;
+    CallLogChangedEvent call_log_changed_event = 52;
+
+    // Pairing (provisional sessions) and trust lifecycle.
+    PairingRequest pairing_request = 60;
+    PairingAwaitConfirmEvent pairing_await_confirm_event = 61;
+    PairingDecision pairing_decision = 62;
+    RevokedEvent revoked_event = 63;
+  }
+}
