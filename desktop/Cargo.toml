@@ -1,0 +1,23 @@
+# Cargo workspace for the Tandem desktop: member crates (proto, core, transport,
+# pairing, crypto, audio, bluetooth, ipc, testkit), the daemon and Tauri shell
+# binaries, and shared workspace dependency versions.
+
+[workspace]
+resolver = "2"
+members = ["crates/proto"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+license = "LicenseRef-TBD"
+
+[workspace.dependencies]
+prost = "0.13"
+prost-build = "0.13"
+protoc-bin-vendored = "3"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "io-util", "net"] }
+tracing = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

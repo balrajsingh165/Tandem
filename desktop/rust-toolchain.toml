@@ -1,0 +1,6 @@
+# Pins the Rust toolchain version and components (rustfmt, clippy) so all
+# contributors and CI build identically.
+
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]

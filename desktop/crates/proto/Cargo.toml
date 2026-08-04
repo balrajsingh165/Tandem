@@ -1,0 +1,16 @@
+# Manifest for tandem_proto: prost/prost-build dependencies and the build-script
+# hookup that compiles /proto at build time (ADR-0009).
+
+[package]
+name = "tandem_proto"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+prost.workspace = true
+
+[build-dependencies]
+prost-build.workspace = true
+protoc-bin-vendored.workspace = true
