@@ -83,7 +83,15 @@ class IdentityStoreImpl @Inject constructor(
             KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY,
         )
             .setAlgorithmParameterSpec(ECGenParameterSpec("secp256r1"))
-            .setDigests(KeyProperties.DIGEST_SHA256)
+            // DIGEST_NONE is not optional: the TLS stack hashes the handshake
+            // transcript itself and asks the keystore for a raw ECDSA signature
+            // over that digest. A key without it cannot serve TLS at all.
+            .setDigests(
+                KeyProperties.DIGEST_NONE,
+                KeyProperties.DIGEST_SHA256,
+                KeyProperties.DIGEST_SHA384,
+                KeyProperties.DIGEST_SHA512,
+            )
             .setCertificateSubject(deviceCertificates.subject())
             .setCertificateNotBefore(deviceCertificates.notBefore())
             .setCertificateNotAfter(deviceCertificates.notAfter())
