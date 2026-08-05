@@ -23,6 +23,12 @@ export const desktopAudioAvailable = writable<boolean>(false);
 export const history = writable<HistoryEntry[]>([]);
 export const pairingState = writable<{ state: string; shortCode: string | null } | null>(null);
 
+/** Non-null while a phone that scanned this desktop's code awaits a verdict. */
+export const pairingApproval = writable<{
+  phoneName: string;
+  phoneFingerprint: string;
+} | null>(null);
+
 /** Non-null while the user must be told why a dial was refused (ADR-0008). */
 export const emergencyNotice = writable<{ number: string; guidance: string } | null>(null);
 
@@ -75,6 +81,13 @@ export function applyEvent(event: IpcEvent): void {
       break;
     case 'pairingProgress':
       pairingState.set({ state: event.state, shortCode: event.shortCode });
+      if (!event.state.startsWith('approve:')) pairingApproval.set(null);
+      break;
+    case 'pairingApprovalRequested':
+      pairingApproval.set({
+        phoneName: event.phoneName,
+        phoneFingerprint: event.phoneFingerprint,
+      });
       break;
     case 'revoked':
       revocation.set(event.reason);

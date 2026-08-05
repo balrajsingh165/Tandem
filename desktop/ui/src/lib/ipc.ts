@@ -49,6 +49,11 @@ export interface HistoryEntry {
   durationSeconds: number;
 }
 
+export interface OfferResult {
+  payload: string;
+  desktopName: string;
+}
+
 export interface StatusResult {
   connection: ConnectionStatus;
   phoneName: string;
@@ -66,6 +71,7 @@ export type IpcEvent =
   | { type: 'emergencyBlocked'; number: string; guidance: string }
   | { type: 'audioPipelineChanged'; scoActive: boolean; latencyMs: number | null }
   | { type: 'pairingProgress'; state: string; shortCode: string | null }
+  | { type: 'pairingApprovalRequested'; phoneName: string; phoneFingerprint: string }
   | { type: 'revoked'; reason: string };
 
 /** Stable codes from tandem_ipc::error, so callers branch on cause not text. */
@@ -114,6 +120,8 @@ export const ipc = {
   history: (sinceMs: number, limit: number) =>
     call<{ entries: HistoryEntry[]; hasMore: boolean }>('history', { sinceMs, limit }),
   pairing: (qrPayload: string) => call<void>('pairing', { qrPayload }),
+  pairingOffer: () => call<OfferResult>('pairingOffer'),
+  pairingConfirm: (accept: boolean) => call<void>('pairingConfirm', { accept }),
 
   onEvent: (handler: (event: IpcEvent) => void) =>
     listen<IpcEvent>('tandem://event', (message) => handler(message.payload)),

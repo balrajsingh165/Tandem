@@ -131,10 +131,16 @@
     letter-spacing: -0.01em;
   }
 
+  /* The panel is a phone companion, not a page: past a comfortable reading
+     width the content is centred rather than stretched across the monitor. */
   main {
     flex: 1;
     overflow-y: auto;
     padding: 4px 16px 16px;
+    width: 100%;
+    max-width: 460px;
+    margin-inline: auto;
+    box-sizing: border-box;
   }
 
   main.calling {
