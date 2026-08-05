@@ -51,7 +51,23 @@ pub async fn find_paired_phone(
     if paired_device_id.is_empty() {
         return Ok(None);
     }
+    browse(Some(paired_device_id.to_string()), timeout).await
+}
 
+/// Finds any Tandem phone on the LAN. Used during QR pairing, where the phone
+/// has scanned this desktop but the desktop does not yet know which phone to
+/// expect. The pairing token is what makes the choice safe: a phone that never
+/// scanned the code cannot complete the exchange.
+pub async fn find_any_phone(
+    timeout: std::time::Duration,
+) -> Result<Option<DiscoveredPhone>, TransportError> {
+    browse(None, timeout).await
+}
+
+async fn browse(
+    wanted_device_id: Option<String>,
+    timeout: std::time::Duration,
+) -> Result<Option<DiscoveredPhone>, TransportError> {
     let daemon = mdns_sd::ServiceDaemon::new().map_err(|e| TransportError::ConnectFailed {
         endpoint: SERVICE_FQDN.into(),
         reason: e.to_string(),
@@ -64,7 +80,6 @@ pub async fn find_paired_phone(
             reason: e.to_string(),
         })?;
 
-    let wanted = paired_device_id.to_string();
     let found = tokio::task::spawn_blocking(move || {
         let deadline = std::time::Instant::now() + timeout;
 
@@ -76,7 +91,11 @@ pub async fn find_paired_phone(
 
             if let mdns_sd::ServiceEvent::ServiceResolved(info) = event {
                 if let Some(candidate) = from_resolved(&info) {
-                    if candidate.matches_paired(&wanted) {
+                    let acceptable = match &wanted_device_id {
+                        Some(id) => candidate.matches_paired(id),
+                        None => true,
+                    };
+                    if acceptable {
                         return Some(candidate);
                     }
                 }
@@ -97,7 +116,7 @@ pub async fn find_paired_phone(
 /// Converts one resolved advertisement into a candidate, or None when it lacks
 /// the records Tandem needs.
 fn from_resolved(info: &mdns_sd::ServiceInfo) -> Option<DiscoveredPhone> {
-    let address = info.get_addresses().iter().next()?.to_string();
+    let address = preferred_address(info.get_addresses())?;
     let records: Vec<(String, String)> = info
         .get_properties()
         .iter()
@@ -105,6 +124,20 @@ fn from_resolved(info: &mdns_sd::ServiceInfo) -> Option<DiscoveredPhone> {
         .collect();
 
     parse_txt_records(&address, info.get_port(), &records).ok()
+}
+
+/// Picks the address actually worth dialing. A phone advertises every address it
+/// holds, including IPv6 link-local ones that need a scope id the desktop cannot
+/// supply — connecting to those merely stalls until the OS gives up, so routable
+/// IPv4 comes first.
+fn preferred_address(addresses: &std::collections::HashSet<std::net::IpAddr>) -> Option<String> {
+    let mut ordered: Vec<&std::net::IpAddr> = addresses.iter().collect();
+    ordered.sort_by_key(|address| match address {
+        std::net::IpAddr::V4(_) => 0,
+        std::net::IpAddr::V6(v6) if !v6.is_unicast_link_local() => 1,
+        std::net::IpAddr::V6(_) => 2,
+    });
+    ordered.first().map(|address| address.to_string())
 }
 
 /// Parses the TXT key/value pairs of an advertisement into a candidate.
@@ -161,6 +194,24 @@ mod tests {
         assert!(parse_txt_records("h", 1, &no_id).is_err());
         let no_v: Vec<_> = records().into_iter().filter(|(k, _)| k != "v").collect();
         assert!(parse_txt_records("h", 1, &no_v).is_err());
+    }
+
+    /// A link-local v6 address reached first would stall the whole attempt, so
+    /// routable addresses have to win regardless of advertisement order.
+    #[test]
+    fn routable_addresses_are_preferred_over_link_local() {
+        use std::net::IpAddr;
+
+        let mut all = std::collections::HashSet::new();
+        all.insert("fe80::f8a9:f1ff:fec4:917f".parse::<IpAddr>().unwrap());
+        all.insert("192.168.1.86".parse::<IpAddr>().unwrap());
+        assert_eq!(preferred_address(&all).unwrap(), "192.168.1.86");
+
+        let only_link_local: std::collections::HashSet<IpAddr> =
+            ["fe80::1".parse().unwrap()].into_iter().collect();
+        assert_eq!(preferred_address(&only_link_local).unwrap(), "fe80::1");
+
+        assert!(preferred_address(&std::collections::HashSet::new()).is_none());
     }
 
     #[test]

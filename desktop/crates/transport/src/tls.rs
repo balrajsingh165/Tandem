@@ -18,19 +18,27 @@ use crate::error::TransportError;
 pub enum PinSource {
     /// Normal sessions: the pin persisted when pairing completed.
     Paired(SpkiFingerprint),
-    /// First pairing: the pin transcribed from the QR payload.
+    /// First pairing from a phone-issued QR: the pin came from the payload.
     PairingBootstrap(SpkiFingerprint),
+    /// First pairing from a desktop-issued QR. The phone authenticated *this*
+    /// device by scanning its key, so the phone's own key is unknown until it
+    /// answers; it is recorded on connect and pinned for every later session.
+    /// The user still compares the short code, which is what rules out a
+    /// machine in the middle (docs/07).
+    TrustOnFirstUse,
 }
 
 impl PinSource {
-    pub fn fingerprint(&self) -> &SpkiFingerprint {
+    /// None in trust-on-first-use, where there is nothing to compare against yet.
+    pub fn fingerprint(&self) -> Option<&SpkiFingerprint> {
         match self {
-            Self::Paired(fp) | Self::PairingBootstrap(fp) => fp,
+            Self::Paired(fp) | Self::PairingBootstrap(fp) => Some(fp),
+            Self::TrustOnFirstUse => None,
         }
     }
 
     pub fn is_bootstrap(&self) -> bool {
-        matches!(self, Self::PairingBootstrap(_))
+        matches!(self, Self::PairingBootstrap(_) | Self::TrustOnFirstUse)
     }
 }
 
@@ -47,8 +55,11 @@ pub fn spki_from_certificate(cert_der: &[u8]) -> Result<Vec<u8>, TransportError>
 /// Verifies the peer's presented key against the pin. This replaces certificate
 /// chain validation entirely — there is no CA in the trust model (ADR-0006).
 pub fn verify_peer(pin: &PinSource, presented_spki_der: &[u8]) -> Result<(), TransportError> {
+    let Some(expected) = pin.fingerprint() else {
+        return Ok(());
+    };
     let presented = SpkiFingerprint::from_spki_der(presented_spki_der);
-    if pin.fingerprint().matches(&presented) {
+    if expected.matches(&presented) {
         Ok(())
     } else {
         Err(TransportError::PinMismatch)
@@ -57,9 +68,11 @@ pub fn verify_peer(pin: &PinSource, presented_spki_der: &[u8]) -> Result<(), Tra
 
 /// rustls verifier that trusts exactly one public key and nothing else. Expiry,
 /// hostname, and issuer are all irrelevant here: the pinned key is the identity.
+/// With no pin it records the key it saw instead, for trust-on-first-use.
 #[derive(Debug)]
 struct PinnedKeyVerifier {
-    pin: SpkiFingerprint,
+    pin: Option<SpkiFingerprint>,
+    observed: Arc<std::sync::Mutex<Option<SpkiFingerprint>>>,
     provider: Arc<CryptoProvider>,
 }
 
@@ -74,13 +87,18 @@ impl ServerCertVerifier for PinnedKeyVerifier {
     ) -> Result<ServerCertVerified, rustls::Error> {
         let spki = spki_from_certificate(end_entity.as_ref())
             .map_err(|e| rustls::Error::General(e.to_string()))?;
+        let presented = SpkiFingerprint::from_spki_der(&spki);
 
-        if SpkiFingerprint::from_spki_der(&spki).matches(&self.pin) {
-            Ok(ServerCertVerified::assertion())
-        } else {
-            Err(rustls::Error::General(
+        // Record what answered even when pinned, so callers can report the key.
+        if let Ok(mut slot) = self.observed.lock() {
+            *slot = Some(presented.clone());
+        }
+
+        match &self.pin {
+            Some(expected) if !expected.matches(&presented) => Err(rustls::Error::General(
                 "peer key does not match the pinned fingerprint".into(),
-            ))
+            )),
+            _ => Ok(ServerCertVerified::assertion()),
         }
     }
 
@@ -126,21 +144,39 @@ pub fn client_config(
     client_cert_chain: Vec<CertificateDer<'static>>,
     client_key: PrivateKeyDer<'static>,
 ) -> Result<ClientConfig, TransportError> {
+    Ok(client_config_observing(pin, client_cert_chain, client_key)?.0)
+}
+
+/// Same as [client_config], plus a handle that receives the peer key the
+/// handshake actually saw. Trust-on-first-use pairing needs it to learn which
+/// key to pin from then on.
+pub fn client_config_observing(
+    pin: &PinSource,
+    client_cert_chain: Vec<CertificateDer<'static>>,
+    client_key: PrivateKeyDer<'static>,
+) -> Result<(ClientConfig, ObservedPeerKey), TransportError> {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let observed: ObservedPeerKey = Arc::new(std::sync::Mutex::new(None));
 
     let verifier = PinnedKeyVerifier {
-        pin: pin.fingerprint().clone(),
+        pin: pin.fingerprint().cloned(),
+        observed: observed.clone(),
         provider: provider.clone(),
     };
 
-    ClientConfig::builder_with_provider(provider)
+    let config = ClientConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()
         .map_err(|e| TransportError::TlsHandshake(e.to_string()))?
         .dangerous()
         .with_custom_certificate_verifier(Arc::new(verifier))
         .with_client_auth_cert(client_cert_chain, client_key)
-        .map_err(|e| TransportError::TlsHandshake(e.to_string()))
+        .map_err(|e| TransportError::TlsHandshake(e.to_string()))?;
+
+    Ok((config, observed))
 }
+
+/// The peer key a handshake presented, filled in once the TLS exchange runs.
+pub type ObservedPeerKey = Arc<std::sync::Mutex<Option<SpkiFingerprint>>>;
 
 #[cfg(test)]
 mod tests {
@@ -185,6 +221,15 @@ mod tests {
 
         let pinned = PinSource::Paired(SpkiFingerprint::from_spki_der(&spki));
         assert!(verify_peer(&pinned, &spki).is_ok());
+    }
+
+    /// Trust-on-first-use has nothing to compare against, so any key passes and
+    /// the short code becomes the thing that rules out an impostor.
+    #[test]
+    fn trust_on_first_use_accepts_an_unknown_key() {
+        assert!(PinSource::TrustOnFirstUse.fingerprint().is_none());
+        assert!(PinSource::TrustOnFirstUse.is_bootstrap());
+        assert!(verify_peer(&PinSource::TrustOnFirstUse, b"any-key").is_ok());
     }
 
     /// Two different certificates over different keys must not collide.

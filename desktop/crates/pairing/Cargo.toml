@@ -1,4 +1,4 @@
-# Manifest for tandem_pairing: depends on tandem_transport, tandem_crypto, and
+﻿# Manifest for tandem_pairing: depends on tandem_transport, tandem_crypto, and
 # tandem_proto for the first-pairing flow.
 
 [package]
@@ -18,6 +18,9 @@ serde_json.workspace = true
 sha2.workspace = true
 hkdf.workspace = true
 rustls-pki-types.workspace = true
+base64.workspace = true
+getrandom = "0.3"
+tokio = { workspace = true, features = ["time"] }
 
 [dev-dependencies]
 rcgen.workspace = true
@@ -26,3 +29,4 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "tim
 tokio-rustls.workspace = true
 tokio-tungstenite.workspace = true
 futures-util.workspace = true
+
