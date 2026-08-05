@@ -1,4 +1,4 @@
-# Manifest for the tandem-ui Tauri shell: tauri 2.x, tandem_ipc client
+﻿# Manifest for the tandem-ui Tauri shell: tauri 2.x, tandem_ipc client
 # dependency, and bundler metadata.
 
 [package]
@@ -24,3 +24,5 @@ tandem_ipc = { path = "../../crates/ipc" }
 tauri = { version = "2", features = ["tray-icon"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tokio = { version = "1", features = ["rt", "net", "io-util", "time", "macros"] }
+

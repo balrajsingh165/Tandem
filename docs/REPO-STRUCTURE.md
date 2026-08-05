@@ -347,7 +347,7 @@ tandem/
 ```
 
 Generated (not hand-authored, not listed below): `android/gradlew`, `android/gradlew.bat`
-(created by `gradle wrapper`), `android/app/src/main/res/mipmap-*/` launcher icon set, protobuf
+(created by `gradle wrapper`), `desktop/ui/src-tauri/icons/` (bundler icon set), protobuf
 codegen output, `Cargo.lock`, `node_modules/`, build directories.
 
 ## File inventory
