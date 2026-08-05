@@ -116,6 +116,13 @@ pub enum IpcRequest {
     Pairing {
         qr_payload: String,
     },
+    /// Starts scan-to-pair: the daemon mints an offer, returns it for display as
+    /// a QR code, and waits for a phone to scan it.
+    PairingOffer,
+    /// The user's verdict on the phone that scanned this desktop's code.
+    PairingConfirm {
+        accept: bool,
+    },
     Settings,
     Status,
 }
@@ -140,6 +147,15 @@ pub enum IpcResponse {
     Status(StatusResult),
     Settings(SettingsResult),
     Pairing(PairingResult),
+    Offer(OfferResult),
+}
+
+/// The payload the UI renders as a QR code for the phone's camera.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OfferResult {
+    pub payload: String,
+    pub desktop_name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -206,6 +222,12 @@ pub enum IpcEvent {
     PairingProgress {
         state: String,
         short_code: Option<String>,
+    },
+    /// A phone scanned this desktop's code and is waiting to be let in. The UI
+    /// must ask before the daemon sends anything to it.
+    PairingApprovalRequested {
+        phone_name: String,
+        phone_fingerprint: String,
     },
     Revoked {
         reason: String,

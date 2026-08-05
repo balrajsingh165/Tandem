@@ -45,7 +45,16 @@ pub struct DaemonIpcService {
     app: SharedApp,
     link: SharedLink,
     pairing: Option<PairingLauncher>,
+    /// The offer currently on screen. Two live offers would race for the phone's
+    /// single pairing window, so showing a new code cancels the old one.
+    offer_task: Option<tokio::task::JoinHandle<()>>,
+    /// Set while a phone waits to be approved on this desktop; taking it is what
+    /// releases the pairing exchange.
+    pending_approval: PendingApproval,
 }
+
+/// The verdict slot the UI fills in and the pairing task waits on.
+pub type PendingApproval = std::sync::Arc<std::sync::Mutex<Option<tokio::sync::oneshot::Sender<bool>>>>;
 
 impl DaemonIpcService {
     pub fn new(app: SharedApp, link: SharedLink) -> Self {
@@ -53,6 +62,8 @@ impl DaemonIpcService {
             app,
             link,
             pairing: None,
+            offer_task: None,
+            pending_approval: PendingApproval::default(),
         }
     }
 
@@ -127,6 +138,102 @@ impl DaemonIpcService {
         Ok(IpcResponse::Ok)
     }
 
+    /// Mints a pairing offer, returns it for the UI to draw as a QR code, and
+    /// runs the exchange in the background so the request answers immediately.
+    fn start_offer(&mut self) -> Result<IpcResponse, IpcError> {
+        let launcher = self.pairing.clone().ok_or(IpcError::Internal)?;
+
+        if let Some(previous) = self.offer_task.take() {
+            previous.abort();
+        }
+
+        let offer = tandem_pairing::DesktopOffer::new(
+            &launcher.credentials.identity.fingerprint(),
+            tandem_pairing::generate_token(),
+            launcher.credentials.identity.display_name.clone(),
+        );
+        let payload = offer.encode();
+
+        let credentials = tandem_pairing::flow::DesktopCredentials {
+            name: launcher.credentials.identity.display_name.clone(),
+            platform: platform_name().to_string(),
+            cert_der: launcher.credentials.identity.cert_der.clone(),
+            key_der: launcher.credentials.key_der.clone(),
+        };
+
+        let approval = self.pending_approval.clone();
+        self.offer_task = Some(tokio::spawn(async move {
+            let events = launcher.events.clone();
+            let ask = |introduction: tandem_pairing::PhoneIntroduction| {
+                let events = events.clone();
+                let approval = approval.clone();
+                async move {
+                    let (sender, receiver) = tokio::sync::oneshot::channel();
+                    *approval.lock().expect("approval mutex poisoned") = Some(sender);
+                    events.publish(tandem_ipc::api::IpcEvent::PairingApprovalRequested {
+                        phone_name: introduction.phone_name,
+                        phone_fingerprint: introduction.phone_fingerprint,
+                    });
+                    // A dropped sender means the offer was replaced or the UI
+                    // went away, which is a refusal rather than an approval.
+                    receiver.await.unwrap_or(false)
+                }
+            };
+
+            let progress_events = events.clone();
+            let outcome = tandem_pairing::offer::run(
+                &offer,
+                &credentials,
+                |state| {
+                    progress_events.publish(tandem_ipc::api::IpcEvent::PairingProgress {
+                        state: describe_offer(state),
+                        short_code: None,
+                    });
+                },
+                ask,
+            )
+            .await;
+
+            match outcome {
+                Ok(record) => {
+                    {
+                        let mut guard = launcher.app.lock().expect("app mutex poisoned");
+                        guard
+                            .store()
+                            .set_paired_phone(tandem_core::model::PairedPhone {
+                                device_id: record.phone_device_id.clone(),
+                                name: record.phone_name.clone(),
+                                spki_sha256: record.phone_spki_sha256.to_base64url(),
+                                bt_address: record.phone_bt_address.clone(),
+                            });
+                        let _ = guard.store().save(&launcher.state_path);
+                    }
+                    launcher
+                        .events
+                        .publish(tandem_ipc::api::IpcEvent::PairingProgress {
+                            state: "accepted".into(),
+                            short_code: None,
+                        });
+                }
+                Err(error) => launcher
+                    .events
+                    .publish(tandem_ipc::api::IpcEvent::PairingProgress {
+                        state: format!("failed: {error}"),
+                        short_code: None,
+                    }),
+            }
+        }));
+
+        Ok(IpcResponse::Offer(tandem_ipc::api::OfferResult {
+            payload,
+            desktop_name: self
+                .pairing
+                .as_ref()
+                .map(|p| p.credentials.identity.display_name.clone())
+                .unwrap_or_default(),
+        }))
+    }
+
     fn status(&mut self) -> StatusResult {
         let mut app = self.app.lock().expect("app mutex poisoned");
         let link = self.link.lock().expect("link mutex poisoned").clone();
@@ -187,6 +294,21 @@ impl IpcService for DaemonIpcService {
                 }
             }
             IpcRequest::Pairing { qr_payload } => return self.start_pairing(qr_payload),
+            IpcRequest::PairingOffer => return self.start_offer(),
+            IpcRequest::PairingConfirm { accept } => {
+                let verdict = self
+                    .pending_approval
+                    .lock()
+                    .expect("approval mutex poisoned")
+                    .take();
+                match verdict {
+                    Some(sender) => {
+                        let _ = sender.send(accept);
+                        return Ok(IpcResponse::Ok);
+                    }
+                    None => return Err(IpcError::PairingFailed("nothing to approve".into())),
+                }
+            }
 
             IpcRequest::History { .. } | IpcRequest::Settings => return Err(IpcError::Internal),
         };
@@ -266,6 +388,19 @@ fn describe(state: &tandem_pairing::flow::PairingState) -> String {
         S::Scanned => "scanned".into(),
         S::Connecting => "connecting".into(),
         S::AwaitingConfirmation { .. } => "awaitingConfirmation".into(),
+        S::Accepted(_) => "accepted".into(),
+        S::Failed(error) => format!("failed: {error}"),
+    }
+}
+
+fn describe_offer(state: &tandem_pairing::OfferState) -> String {
+    use tandem_pairing::OfferState as S;
+    match state {
+        S::Waiting => "waitingForScan".into(),
+        S::Retrying { reason } => format!("retrying: {reason}"),
+        S::Connecting { phone_name } => format!("connecting:{phone_name}"),
+        S::AwaitingLocalApproval(phone) => format!("approve:{}", phone.phone_name),
+        S::AwaitingConfirmation => "awaitingConfirmation".into(),
         S::Accepted(_) => "accepted".into(),
         S::Failed(error) => format!("failed: {error}"),
     }
