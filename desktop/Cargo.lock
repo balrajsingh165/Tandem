@@ -972,6 +972,9 @@ dependencies = [
 name = "tandem_daemon"
 version = "0.1.0"
 dependencies = [
+ "futures-util",
+ "rcgen",
+ "rustls",
  "rustls-pki-types",
  "tandem_audio",
  "tandem_bluetooth",
@@ -984,6 +987,8 @@ dependencies = [
  "tandem_transport",
  "thiserror 2.0.19",
  "tokio",
+ "tokio-rustls",
+ "tokio-tungstenite",
 ]
 
 [[package]]

@@ -14,38 +14,45 @@ use crate::app::App;
 use tandem_core::events::UserCommand;
 use tandem_core::model::{AudioRoute, Call, CallState};
 
+/// App state shared between the IPC server and the session supervisor. A
+/// std mutex is deliberate: every critical section is a short, synchronous
+/// mutation, so no lock is ever held across an await.
+pub type SharedApp = std::sync::Arc<std::sync::Mutex<App>>;
+
+/// Connection facts the supervisor reports for the UI to render.
+#[derive(Debug, Clone, Default)]
+pub struct LinkState {
+    pub connection: Option<ConnectionStatus>,
+    pub phone_name: String,
+}
+
+pub type SharedLink = std::sync::Arc<std::sync::Mutex<LinkState>>;
+
 /// Bridges the UI-facing API to the domain, keeping every policy decision in
 /// core rather than in this translation layer.
 pub struct DaemonIpcService {
-    app: App,
-    connection: ConnectionStatus,
-    phone_name: String,
+    app: SharedApp,
+    link: SharedLink,
 }
 
 impl DaemonIpcService {
-    pub fn new(app: App) -> Self {
-        Self {
-            app,
-            connection: ConnectionStatus::Idle,
-            phone_name: String::new(),
-        }
+    pub fn new(app: SharedApp, link: SharedLink) -> Self {
+        Self { app, link }
     }
 
-    pub fn set_connection(&mut self, connection: ConnectionStatus, phone_name: &str) {
-        self.connection = connection;
-        self.phone_name = phone_name.to_string();
-    }
-
-    pub fn app_mut(&mut self) -> &mut App {
-        &mut self.app
+    pub fn shared_app(&self) -> SharedApp {
+        self.app.clone()
     }
 
     fn status(&mut self) -> StatusResult {
-        let desktop_audio_available = self.app.desktop_audio_available();
-        let mirror = self.app.controller().mirror().cloned();
+        let mut app = self.app.lock().expect("app mutex poisoned");
+        let link = self.link.lock().expect("link mutex poisoned").clone();
+
+        let desktop_audio_available = app.desktop_audio_available();
+        let mirror = app.controller().mirror().cloned();
         StatusResult {
-            connection: self.connection,
-            phone_name: self.phone_name.clone(),
+            connection: link.connection.unwrap_or(ConnectionStatus::Idle),
+            phone_name: link.phone_name,
             calls: mirror
                 .as_ref()
                 .map(|m| m.calls.iter().map(call_view).collect())
@@ -83,8 +90,12 @@ impl IpcService for DaemonIpcService {
                 route,
                 bt_device_address,
             } => {
-                if !self.app.desktop_audio_available() && matches!(route, IpcAudioRoute::Bluetooth)
-                {
+                let audio_available = self
+                    .app
+                    .lock()
+                    .expect("app mutex poisoned")
+                    .desktop_audio_available();
+                if !audio_available && matches!(route, IpcAudioRoute::Bluetooth) {
                     return Err(IpcError::AudioUnavailable);
                 }
                 UserCommand::RequestAudioRoute {
@@ -98,6 +109,8 @@ impl IpcService for DaemonIpcService {
         };
 
         self.app
+            .lock()
+            .expect("app mutex poisoned")
             .controller()
             .apply_user_command(command)
             .map(|_| IpcResponse::Ok)
@@ -169,18 +182,27 @@ mod tests {
     use tandem_bluetooth::backends::BackendKind;
 
     fn service() -> DaemonIpcService {
+        service_with_link(LinkState::default())
+    }
+
+    fn service_with_link(link: LinkState) -> DaemonIpcService {
         let mut app = App::build(Config {
             bluetooth_backend: BackendKind::Null,
             ..Config::default()
         });
         app.adopt_emergency_numbers(vec!["911".into(), "112".into()]);
-        DaemonIpcService::new(app)
+        DaemonIpcService::new(
+            std::sync::Arc::new(std::sync::Mutex::new(app)),
+            std::sync::Arc::new(std::sync::Mutex::new(link)),
+        )
     }
 
     #[test]
     fn status_reports_media_availability_so_the_ui_can_explain_itself() {
-        let mut s = service();
-        s.set_connection(ConnectionStatus::Live, "Pixel");
+        let mut s = service_with_link(LinkState {
+            connection: Some(ConnectionStatus::Live),
+            phone_name: "Pixel".into(),
+        });
         let response = s.handle(IpcRequest::Status).unwrap();
 
         match response {

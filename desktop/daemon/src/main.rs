@@ -21,7 +21,8 @@ use tandem_ipc::socket::Endpoint;
 
 use crate::app::App;
 use crate::config::Config;
-use crate::ipc_service::DaemonIpcService;
+use crate::ipc_service::{DaemonIpcService, LinkState, SharedApp, SharedLink};
+use crate::session_loop::PhoneEndpoint;
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -67,7 +68,26 @@ async fn run(config: Config) -> ExitCode {
 
     let desktop_audio = app.desktop_audio_available();
     let endpoint = ipc_endpoint(&config);
-    let server = IpcServer::new(DaemonIpcService::new(app), EventPublisher::new());
+
+    let shared_app: SharedApp = std::sync::Arc::new(std::sync::Mutex::new(app));
+    let link: SharedLink = std::sync::Arc::new(std::sync::Mutex::new(LinkState::default()));
+    let events = EventPublisher::new();
+    let server = IpcServer::new(
+        DaemonIpcService::new(shared_app.clone(), link.clone()),
+        events.clone(),
+    );
+
+    // The supervisor only runs once a phone is paired; until then the daemon
+    // still serves the UI so pairing can be started from it.
+    if let Some(phone) = configured_phone(&config) {
+        tokio::spawn(session_loop::supervise(
+            phone,
+            identity.clone(),
+            shared_app.clone(),
+            link.clone(),
+            events.clone(),
+        ));
+    }
 
     println!(
         "tandem-daemon ready on {} (identity {}, desktop audio: {})",
@@ -129,6 +149,20 @@ fn ipc_endpoint(config: &Config) -> Endpoint {
         Some(path) => Endpoint::UnixSocket(std::path::PathBuf::from(path)),
         None => Endpoint::default_for_platform(std::env::var("XDG_RUNTIME_DIR").ok().as_deref()),
     }
+}
+
+/// A phone endpoint supplied on the command line, used before mDNS discovery is
+/// wired. Pairing has to have happened already for the pin to be meaningful.
+fn configured_phone(config: &Config) -> Option<PhoneEndpoint> {
+    let host = config.phone_host.clone()?;
+    let pin = config.phone_pin.as_ref()?;
+    let fingerprint = tandem_crypto::SpkiFingerprint::from_base64url(pin).ok()?;
+
+    Some(PhoneEndpoint {
+        host,
+        port: config.phone_port,
+        pin: tandem_transport::tls::PinSource::Paired(fingerprint),
+    })
 }
 
 async fn shutdown_signal() {

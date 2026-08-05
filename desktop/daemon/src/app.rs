@@ -35,6 +35,7 @@ pub struct App {
     store: Store,
     bluetooth: Box<dyn BluetoothBackend>,
     health: SubsystemHealth,
+    next_message_id: u64,
 }
 
 impl App {
@@ -51,6 +52,7 @@ impl App {
                 control_ready: true,
                 media_ready,
             },
+            next_message_id: 1,
         }
     }
 
@@ -64,6 +66,16 @@ impl App {
 
     pub fn store(&mut self) -> &mut Store {
         &mut self.store
+    }
+
+    /// Message ids continue across sessions so the phone can deduplicate a
+    /// post-reconnect retry (docs/06 framing rules).
+    pub fn next_message_id(&self) -> u64 {
+        self.next_message_id
+    }
+
+    pub fn set_next_message_id(&mut self, next: u64) {
+        self.next_message_id = next;
     }
 
     pub fn health(&self) -> SubsystemHealth {

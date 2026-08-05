@@ -1,4 +1,4 @@
-# Manifest for tandem-daemon: assembles core, transport, pairing, crypto, audio,
+﻿# Manifest for tandem-daemon: assembles core, transport, pairing, crypto, audio,
 # bluetooth, and ipc into the headless desktop service binary.
 
 [package]
@@ -26,4 +26,11 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "
 rustls-pki-types.workspace = true
 
 [dev-dependencies]
+rcgen.workspace = true
+rustls.workspace = true
+rustls-pki-types.workspace = true
+tokio-rustls.workspace = true
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
 tandem_testkit = { path = "../crates/testkit" }
+

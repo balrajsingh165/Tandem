@@ -17,6 +17,8 @@ pub struct Config {
     /// Where identity and cache live; defaults per platform when unset.
     pub state_directory: Option<std::path::PathBuf>,
     pub desktop_display_name: String,
+    /// base64url SPKI-SHA256 of the paired phone, until discovery is wired.
+    pub phone_pin: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,6 +65,7 @@ impl Default for Config {
             ipc_socket_override: None,
             state_directory: None,
             desktop_display_name: default_display_name(),
+            phone_pin: None,
         }
     }
 }
@@ -140,6 +143,7 @@ impl Config {
                     )?))
                 }
                 "--name" => self.desktop_display_name = take_value(&args, &mut index, &flag)?,
+                "--phone-pin" => self.phone_pin = Some(take_value(&args, &mut index, &flag)?),
                 other => return Err(ConfigError::UnknownFlag(other.to_string())),
             }
             index += 1;

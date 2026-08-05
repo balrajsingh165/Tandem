@@ -5,15 +5,18 @@
 
 use std::time::Duration;
 
-use tandem_core::events::PhoneEvent;
+use tandem_core::events::{ControllerOutput, PhoneEvent};
 use tandem_core::model::{AudioRoute, Call, CallDirection, CallSnapshot, CallState, StateVersion};
 use tandem_crypto::IdentityCredentials;
+use tandem_ipc::api::{ConnectionStatus, IpcEvent};
+use tandem_ipc::server::EventPublisher;
 use tandem_proto::envelope::Payload;
-use tandem_transport::client::{ClientIdentity, WsTransportClient};
+use tandem_transport::client::{ClientIdentity, TransportClient, WsTransportClient};
 use tandem_transport::error::TransportError;
 use tandem_transport::reconnect::{Backoff, ResumeCursor};
 use tandem_transport::tls::{client_config, PinSource};
 
+use crate::ipc_service::{SharedApp, SharedLink};
 use crate::store::Store;
 
 /// Where the phone lives and how to prove it is the right one.
@@ -179,6 +182,146 @@ pub fn next_delay(backoff: &mut Backoff, entropy: f64) -> Duration {
     let delay = backoff.jittered(entropy);
     backoff.advance();
     delay
+}
+
+/// Jitter source. The clock is sufficient here: the goal is only to stop a fleet
+/// of desktops retrying in lockstep, not to resist prediction.
+fn clock_entropy() -> f64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.subsec_nanos())
+        .unwrap_or(0);
+    f64::from(nanos % 1_000) / 1_000.0
+}
+
+/// Runs one session to completion: connect, reconcile, then pump events until
+/// the link ends.
+pub async fn run_one_session(
+    endpoint: &PhoneEndpoint,
+    credentials: &IdentityCredentials,
+    app: &SharedApp,
+    link: &SharedLink,
+    events: &EventPublisher,
+) -> Result<(), TransportError> {
+    let next_id = { app.lock().expect("app mutex poisoned").next_message_id() };
+    set_connection(link, ConnectionStatus::Connecting, "");
+
+    let mut client = connect_once(endpoint, credentials, next_id).await?;
+    let session = client.session().clone();
+
+    // The emergency list is per-session: a SIM swap between sessions changes it,
+    // so the local pre-check is re-armed on every connect (ADR-0008).
+    {
+        let mut guard = app.lock().expect("app mutex poisoned");
+        guard.adopt_emergency_numbers(session.emergency_numbers.clone());
+    }
+    set_connection(link, ConnectionStatus::Resuming, &session.phone_name);
+
+    let cursor = {
+        let mut guard = app.lock().expect("app mutex poisoned");
+        let mirror = guard.controller().version().cloned();
+        resume_cursor(guard.store(), mirror.as_ref())
+    };
+
+    let resumed = client.resume(cursor).await?;
+    apply_payload(resumed, app, events);
+    set_connection(link, ConnectionStatus::Live, &session.phone_name);
+
+    loop {
+        let payload = client.next_payload().await?;
+        let revoked = matches!(payload, Payload::RevokedEvent(_));
+        apply_payload(payload, app, events);
+
+        if revoked {
+            set_connection(link, ConnectionStatus::Terminated, &session.phone_name);
+            return Err(TransportError::Revoked("unpaired on the phone".into()));
+        }
+    }
+}
+
+/// Applies one inbound payload to the mirror and tells the UI what changed.
+fn apply_payload(payload: Payload, app: &SharedApp, events: &EventPublisher) {
+    let Some(event) = to_phone_event(payload) else {
+        return;
+    };
+
+    let outputs = {
+        let mut guard = app.lock().expect("app mutex poisoned");
+        guard.controller().apply_phone_event(event)
+    };
+
+    for output in outputs {
+        if let ControllerOutput::MirrorUpdated(snapshot) = output {
+            events.publish(IpcEvent::CallsChanged {
+                calls: snapshot.calls.iter().map(call_view).collect(),
+            });
+        }
+    }
+}
+
+fn call_view(call: &Call) -> tandem_ipc::api::CallView {
+    tandem_ipc::api::CallView {
+        call_id: call.call_id.clone(),
+        state: match call.state {
+            CallState::Connecting => tandem_ipc::api::CallState::Connecting,
+            CallState::Dialing => tandem_ipc::api::CallState::Dialing,
+            CallState::Ringing => tandem_ipc::api::CallState::Ringing,
+            CallState::Active => tandem_ipc::api::CallState::Active,
+            CallState::Holding => tandem_ipc::api::CallState::Holding,
+            CallState::Disconnecting => tandem_ipc::api::CallState::Disconnecting,
+            CallState::Disconnected => tandem_ipc::api::CallState::Disconnected,
+        },
+        remote_number: call.remote_number.clone(),
+        remote_display_name: call.remote_display_name.clone(),
+        started_at_ms: call.started_at_ms,
+        is_conference: call.is_conference,
+        can_hold: call.can_hold,
+        can_merge: call.can_merge,
+        is_emergency: call.is_emergency,
+    }
+}
+
+fn set_connection(link: &SharedLink, connection: ConnectionStatus, phone_name: &str) {
+    let mut guard = link.lock().expect("link mutex poisoned");
+    guard.connection = Some(connection);
+    if !phone_name.is_empty() {
+        guard.phone_name = phone_name.to_string();
+    }
+}
+
+/// Keeps a session alive across drops. A transient failure backs off and retries;
+/// a trust or version failure stops, because retrying cannot fix a wrong key.
+pub async fn supervise(
+    endpoint: PhoneEndpoint,
+    credentials: IdentityCredentials,
+    app: SharedApp,
+    link: SharedLink,
+    events: EventPublisher,
+) {
+    let mut backoff = Backoff::new();
+
+    loop {
+        match run_one_session(&endpoint, &credentials, &app, &link, &events).await {
+            Ok(()) => backoff.reset(),
+            Err(error) => match classify(&error) {
+                AttemptOutcome::Fatal(fatal) => {
+                    set_connection(&link, ConnectionStatus::Terminated, "");
+                    events.publish(IpcEvent::Revoked {
+                        reason: fatal.to_string(),
+                    });
+                    return;
+                }
+                AttemptOutcome::Ended => {}
+            },
+        }
+
+        set_connection(&link, ConnectionStatus::Backoff, "");
+        events.publish(IpcEvent::ConnectionChanged {
+            connection: ConnectionStatus::Backoff,
+        });
+        tokio::time::sleep(next_delay(&mut backoff, clock_entropy())).await;
+    }
 }
 
 #[cfg(test)]
