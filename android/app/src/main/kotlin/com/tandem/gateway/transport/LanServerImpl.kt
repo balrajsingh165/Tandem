@@ -100,7 +100,9 @@ class LanServerImpl @Inject constructor(
 
     private suspend fun acceptLoop(socket: ServerSocket) {
         while (scope.isActive && !socket.isClosed) {
-            val accepted = runCatching { socket.accept() as SSLSocket }.getOrNull() ?: continue
+            val accepted = runCatching { socket.accept() as SSLSocket }
+                .onFailure { android.util.Log.w(TAG, "accept failed", it) }
+                .getOrNull() ?: continue
             scope.launch(Dispatchers.IO) { serve(accepted) }
         }
     }
@@ -114,7 +116,9 @@ class LanServerImpl @Inject constructor(
         try {
             socket.useClientMode = false
             socket.needClientAuth = true
+            android.util.Log.i(TAG, "handshaking with ${socket.inetAddress}")
             withContext(Dispatchers.IO) { socket.startHandshake() }
+            android.util.Log.i(TAG, "handshake ok with ${socket.inetAddress}")
 
             val peerCert = socket.session.peerCertificates.firstOrNull() as? X509Certificate
                 ?: return
@@ -181,8 +185,10 @@ class LanServerImpl @Inject constructor(
             latestSnapshot?.let { active.send(snapshotEnvelope(it)) }
 
             pump(active, input)
-        } catch (_: Exception) {
-            // A failed session is a dropped desktop, never a gateway outage.
+        } catch (error: Exception) {
+            // A failed session is a dropped desktop, never a gateway outage —
+            // but it is logged, or a pairing that never lands is undiagnosable.
+            android.util.Log.w(TAG, "session from ${socket.inetAddress} failed", error)
         } finally {
             session?.let { sessionRegistry.unregister(it.deviceId) }
             session?.close()
@@ -361,5 +367,7 @@ class LanServerImpl @Inject constructor(
     companion object {
         /** WebSocket path the desktop client dials. */
         const val WS_PATH: String = "/tlp/v1"
+
+        private const val TAG: String = "TandemLan"
     }
 }

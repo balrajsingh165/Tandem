@@ -26,6 +26,7 @@ class TlsServerFactory @Inject constructor(
     private var pairingWindowOpen: Boolean = false
 
     fun setPairingWindowOpen(open: Boolean) {
+        android.util.Log.i(TAG, "pairing window open=$open")
         pairingWindowOpen = open
     }
 
@@ -75,7 +76,11 @@ class TlsServerFactory @Inject constructor(
             val known = runBlocking { pairedDeviceRepository.byPinnedKey(fingerprint) }
 
             if (known != null && !known.revoked) return
-            if (pairingWindowOpen) return
+            if (pairingWindowOpen) {
+                android.util.Log.i(TAG, "admitting unknown peer $fingerprint into pairing")
+                return
+            }
+            android.util.Log.w(TAG, "refusing unpaired peer $fingerprint; no pairing window open")
             throw CertificateRejected("client key is not paired with this phone")
         }
 
@@ -88,6 +93,7 @@ class TlsServerFactory @Inject constructor(
 
     private companion object {
         const val ANDROID_KEYSTORE = "AndroidKeyStore"
+        const val TAG = "TandemTls"
     }
 }
 
