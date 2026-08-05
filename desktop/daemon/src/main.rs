@@ -21,7 +21,7 @@ use tandem_ipc::socket::Endpoint;
 
 use crate::app::App;
 use crate::config::Config;
-use crate::ipc_service::{DaemonIpcService, LinkState, SharedApp, SharedLink};
+use crate::ipc_service::{DaemonIpcService, LinkState, PairingLauncher, SharedApp, SharedLink};
 use crate::session_loop::PhoneEndpoint;
 
 fn main() -> ExitCode {
@@ -60,11 +60,16 @@ async fn run(config: Config) -> ExitCode {
         }
     };
 
-    let app = App::build(config.clone());
+    let mut app = App::build(config.clone());
     if !app.health().is_usable() {
         eprintln!("tandem-daemon: control plane failed to start");
         return ExitCode::FAILURE;
     }
+
+    // A previous pairing is what makes the daemon useful on start; without it
+    // there is nothing to connect to until the UI runs pairing.
+    let state_path = state_file(&config);
+    *app.store() = crate::store::Store::load(&state_path);
 
     let desktop_audio = app.desktop_audio_available();
     let endpoint = ipc_endpoint(&config);
@@ -73,13 +78,18 @@ async fn run(config: Config) -> ExitCode {
     let link: SharedLink = std::sync::Arc::new(std::sync::Mutex::new(LinkState::default()));
     let events = EventPublisher::new();
     let server = IpcServer::new(
-        DaemonIpcService::new(shared_app.clone(), link.clone()),
+        DaemonIpcService::new(shared_app.clone(), link.clone()).with_pairing(PairingLauncher {
+            credentials: identity.clone(),
+            events: events.clone(),
+            app: shared_app.clone(),
+            state_path: state_path.clone(),
+        }),
         events.clone(),
     );
 
     // The supervisor only runs once a phone is paired; until then the daemon
     // still serves the UI so pairing can be started from it.
-    if let Some(phone) = configured_phone(&config) {
+    if let Some(phone) = paired_phone(&config, &shared_app).or_else(|| configured_phone(&config)) {
         tokio::spawn(session_loop::supervise(
             phone,
             identity.clone(),
@@ -96,7 +106,7 @@ async fn run(config: Config) -> ExitCode {
         if desktop_audio {
             "available"
         } else {
-            "unavailable — Tier B-lite"
+            "unavailable â€” Tier B-lite"
         }
     );
 
@@ -151,8 +161,35 @@ fn ipc_endpoint(config: &Config) -> Endpoint {
     }
 }
 
-/// A phone endpoint supplied on the command line, used before mDNS discovery is
-/// wired. Pairing has to have happened already for the pin to be meaningful.
+fn state_file(config: &Config) -> std::path::PathBuf {
+    config
+        .state_directory
+        .clone()
+        .unwrap_or_else(default_state_directory)
+        .join("tandem-cache.json")
+}
+
+/// The phone this desktop paired with previously. Its host still comes from
+/// configuration until mDNS discovery is wired, but the pin comes from the
+/// persisted pairing rather than the command line.
+fn paired_phone(config: &Config, app: &SharedApp) -> Option<PhoneEndpoint> {
+    let stored = {
+        let mut guard = app.lock().ok()?;
+        guard.store().paired_phone().cloned()
+    }?;
+
+    let fingerprint = tandem_crypto::SpkiFingerprint::from_base64url(&stored.spki_sha256).ok()?;
+    let host = config.phone_host.clone()?;
+
+    Some(PhoneEndpoint {
+        host,
+        port: config.phone_port,
+        pin: tandem_transport::tls::PinSource::Paired(fingerprint),
+    })
+}
+
+/// A phone endpoint supplied entirely on the command line, for bring-up before a
+/// pairing exists.
 fn configured_phone(config: &Config) -> Option<PhoneEndpoint> {
     let host = config.phone_host.clone()?;
     let pin = config.phone_pin.as_ref()?;

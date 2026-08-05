@@ -976,6 +976,8 @@ dependencies = [
  "rcgen",
  "rustls",
  "rustls-pki-types",
+ "serde",
+ "serde_json",
  "tandem_audio",
  "tandem_bluetooth",
  "tandem_core",

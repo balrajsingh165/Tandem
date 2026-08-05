@@ -28,20 +28,103 @@ pub struct LinkState {
 
 pub type SharedLink = std::sync::Arc<std::sync::Mutex<LinkState>>;
 
+/// What the service needs to start a pairing attempt on the user's behalf.
+/// Pairing is long-running, so the request returns immediately and progress
+/// arrives as `pairingProgress` events.
+#[derive(Clone)]
+pub struct PairingLauncher {
+    pub credentials: tandem_crypto::IdentityCredentials,
+    pub events: tandem_ipc::server::EventPublisher,
+    pub app: SharedApp,
+    pub state_path: std::path::PathBuf,
+}
+
 /// Bridges the UI-facing API to the domain, keeping every policy decision in
 /// core rather than in this translation layer.
 pub struct DaemonIpcService {
     app: SharedApp,
     link: SharedLink,
+    pairing: Option<PairingLauncher>,
 }
 
 impl DaemonIpcService {
     pub fn new(app: SharedApp, link: SharedLink) -> Self {
-        Self { app, link }
+        Self {
+            app,
+            link,
+            pairing: None,
+        }
+    }
+
+    pub fn with_pairing(mut self, launcher: PairingLauncher) -> Self {
+        self.pairing = Some(launcher);
+        self
     }
 
     pub fn shared_app(&self) -> SharedApp {
         self.app.clone()
+    }
+
+    /// Parses the QR payload and runs pairing in the background, persisting the
+    /// phone identity on success so the pairing survives a restart.
+    fn start_pairing(&self, qr_payload: String) -> Result<IpcResponse, IpcError> {
+        let launcher = self.pairing.clone().ok_or(IpcError::Internal)?;
+
+        let invitation = tandem_pairing::QrPayload::parse(&qr_payload)
+            .map_err(|e| IpcError::PairingFailed(e.to_string()))?;
+
+        tokio::spawn(async move {
+            let mut flow = tandem_pairing::flow::PairingFlow::new(invitation);
+            let credentials = tandem_pairing::flow::DesktopCredentials {
+                name: launcher.credentials.identity.display_name.clone(),
+                platform: platform_name().to_string(),
+                cert_der: launcher.credentials.identity.cert_der.clone(),
+                key_der: launcher.credentials.key_der.clone(),
+            };
+
+            let events = launcher.events.clone();
+            let outcome = flow
+                .run(&credentials, |state| {
+                    events.publish(tandem_ipc::api::IpcEvent::PairingProgress {
+                        state: describe(state),
+                        short_code: short_code_of(state),
+                    });
+                })
+                .await;
+
+            match outcome {
+                Ok(record) => {
+                    {
+                        let mut guard = launcher.app.lock().expect("app mutex poisoned");
+                        guard
+                            .store()
+                            .set_paired_phone(tandem_core::model::PairedPhone {
+                                device_id: record.phone_device_id.clone(),
+                                name: record.phone_name.clone(),
+                                spki_sha256: record.phone_spki_sha256.to_base64url(),
+                                bt_address: record.phone_bt_address.clone(),
+                            });
+                        let _ = guard.store().save(&launcher.state_path);
+                    }
+                    launcher
+                        .events
+                        .publish(tandem_ipc::api::IpcEvent::PairingProgress {
+                            state: "accepted".into(),
+                            short_code: None,
+                        });
+                }
+                Err(error) => {
+                    launcher
+                        .events
+                        .publish(tandem_ipc::api::IpcEvent::PairingProgress {
+                            state: format!("failed: {error}"),
+                            short_code: None,
+                        });
+                }
+            }
+        });
+
+        Ok(IpcResponse::Ok)
     }
 
     fn status(&mut self) -> StatusResult {
@@ -103,9 +186,9 @@ impl IpcService for DaemonIpcService {
                     bt_device_address,
                 }
             }
-            IpcRequest::History { .. } | IpcRequest::Pairing { .. } | IpcRequest::Settings => {
-                return Err(IpcError::Internal)
-            }
+            IpcRequest::Pairing { qr_payload } => return self.start_pairing(qr_payload),
+
+            IpcRequest::History { .. } | IpcRequest::Settings => return Err(IpcError::Internal),
         };
 
         self.app
@@ -163,6 +246,37 @@ fn audio_route(route: AudioRoute) -> IpcAudioRoute {
         AudioRoute::Speaker => IpcAudioRoute::Speaker,
         AudioRoute::WiredHeadset => IpcAudioRoute::WiredHeadset,
         AudioRoute::Bluetooth => IpcAudioRoute::Bluetooth,
+    }
+}
+
+/// Reported to the phone so its paired-devices list can label this machine.
+fn platform_name() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    }
+}
+
+fn describe(state: &tandem_pairing::flow::PairingState) -> String {
+    use tandem_pairing::flow::PairingState as S;
+    match state {
+        S::Scanned => "scanned".into(),
+        S::Connecting => "connecting".into(),
+        S::AwaitingConfirmation { .. } => "awaitingConfirmation".into(),
+        S::Accepted(_) => "accepted".into(),
+        S::Failed(error) => format!("failed: {error}"),
+    }
+}
+
+fn short_code_of(state: &tandem_pairing::flow::PairingState) -> Option<String> {
+    match state {
+        tandem_pairing::flow::PairingState::AwaitingConfirmation { short_code } => {
+            short_code.as_ref().map(|c| c.as_str().to_string())
+        }
+        _ => None,
     }
 }
 

@@ -2,6 +2,7 @@
 //! call-log mirror with sync cursor, and settings not held in config.toml. Schema
 //! DDL in docs/09.
 
+use serde::{Deserialize, Serialize};
 use tandem_core::model::{CallLogRow, PairedPhone};
 
 /// Schema version; a mismatch triggers migration rather than silent misreads.
@@ -105,6 +106,118 @@ impl Store {
             entry_count: self.call_log.len(),
         };
     }
+
+    /// Reads persisted state. A missing or unreadable file yields an empty store
+    /// rather than an error: a corrupted cache must not stop the daemon, since
+    /// everything in it is a re-syncable projection of phone truth.
+    pub fn load(path: &std::path::Path) -> Self {
+        let Ok(bytes) = std::fs::read(path) else {
+            return Self::default();
+        };
+        let Ok(persisted) = serde_json::from_slice::<PersistedState>(&bytes) else {
+            return Self::default();
+        };
+
+        let mut store = Self {
+            paired_phone: persisted.paired_phone.map(Into::into),
+            call_log: Vec::new(),
+            cursor: SyncCursor::default(),
+            last_call_log_version: persisted.last_call_log_version,
+        };
+        store.merge_call_log(persisted.call_log.into_iter().map(Into::into).collect());
+        store
+    }
+
+    pub fn save(&self, path: &std::path::Path) -> std::io::Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let persisted = PersistedState {
+            schema_version: SCHEMA_VERSION,
+            paired_phone: self.paired_phone.clone().map(Into::into),
+            call_log: self.call_log.iter().cloned().map(Into::into).collect(),
+            last_call_log_version: self.last_call_log_version,
+        };
+        let bytes = serde_json::to_vec_pretty(&persisted)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        std::fs::write(path, bytes)
+    }
+}
+
+/// On-disk shape. Kept separate from the domain models so the storage format can
+/// change without the domain following it.
+#[derive(Debug, Serialize, Deserialize)]
+struct PersistedState {
+    schema_version: u32,
+    paired_phone: Option<PersistedPhone>,
+    call_log: Vec<PersistedCallLogRow>,
+    last_call_log_version: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersistedPhone {
+    device_id: String,
+    name: String,
+    spki_sha256: String,
+    bt_address: String,
+}
+
+impl From<PairedPhone> for PersistedPhone {
+    fn from(phone: PairedPhone) -> Self {
+        Self {
+            device_id: phone.device_id,
+            name: phone.name,
+            spki_sha256: phone.spki_sha256,
+            bt_address: phone.bt_address,
+        }
+    }
+}
+
+impl From<PersistedPhone> for PairedPhone {
+    fn from(phone: PersistedPhone) -> Self {
+        Self {
+            device_id: phone.device_id,
+            name: phone.name,
+            spki_sha256: phone.spki_sha256,
+            bt_address: phone.bt_address,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersistedCallLogRow {
+    entry_id: String,
+    number: String,
+    display_name: String,
+    started_at_ms: i64,
+    duration_seconds: u32,
+    sim_slot: i32,
+}
+
+impl From<CallLogRow> for PersistedCallLogRow {
+    fn from(row: CallLogRow) -> Self {
+        Self {
+            entry_id: row.entry_id,
+            number: row.number,
+            display_name: row.display_name,
+            started_at_ms: row.started_at_ms,
+            duration_seconds: row.duration_seconds,
+            sim_slot: row.sim_slot,
+        }
+    }
+}
+
+impl From<PersistedCallLogRow> for CallLogRow {
+    fn from(row: PersistedCallLogRow) -> Self {
+        Self {
+            entry_id: row.entry_id,
+            number: row.number,
+            display_name: row.display_name,
+            started_at_ms: row.started_at_ms,
+            duration_seconds: row.duration_seconds,
+            sim_slot: row.sim_slot,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -171,6 +284,72 @@ mod tests {
         store.set_call_log_version(7);
         assert!(!store.needs_full_resync(7));
         assert!(store.needs_full_resync(8));
+    }
+
+    fn temp_path(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("tandem-store-{name}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir.join("tandem-cache.json")
+    }
+
+    /// A pairing that vanished on restart would force the user to re-pair every
+    /// launch.
+    #[test]
+    fn a_paired_phone_survives_a_restart() {
+        let path = temp_path("pairing");
+        let mut store = Store::default();
+        store.set_paired_phone(PairedPhone {
+            device_id: "p1".into(),
+            name: "Pixel".into(),
+            spki_sha256: "pinned-key".into(),
+            bt_address: "AA:BB".into(),
+        });
+        store.set_call_log_version(12);
+        store.save(&path).unwrap();
+
+        let reopened = Store::load(&path);
+        let phone = reopened.paired_phone().expect("phone must persist");
+        assert_eq!(phone.device_id, "p1");
+        assert_eq!(phone.spki_sha256, "pinned-key");
+        assert_eq!(reopened.last_call_log_version(), 12);
+
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn the_mirrored_call_log_survives_a_restart_newest_first() {
+        let path = temp_path("log");
+        let mut store = Store::default();
+        store.merge_call_log(vec![row("a", 100), row("b", 300)]);
+        store.save(&path).unwrap();
+
+        let reopened = Store::load(&path);
+        assert_eq!(reopened.call_log().len(), 2);
+        assert_eq!(reopened.call_log()[0].entry_id, "b");
+        assert_eq!(reopened.cursor().newest_entry_ms, 300);
+
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn an_absent_file_loads_as_an_empty_store() {
+        let store = Store::load(&temp_path("missing"));
+        assert!(store.paired_phone().is_none());
+        assert!(store.call_log().is_empty());
+    }
+
+    /// The cache is a re-syncable projection, so corruption must not stop the
+    /// daemon from starting.
+    #[test]
+    fn a_corrupt_file_loads_as_an_empty_store() {
+        let path = temp_path("corrupt");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"{ not valid json").unwrap();
+
+        let store = Store::load(&path);
+        assert!(store.paired_phone().is_none());
+
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
     /// Call metadata must not outlive the pairing that justified holding it.

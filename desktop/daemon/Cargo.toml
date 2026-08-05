@@ -24,6 +24,8 @@ tandem_transport = { path = "../crates/transport" }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "net", "io-util", "sync", "time"] }
 rustls-pki-types.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 rcgen.workspace = true
