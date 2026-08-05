@@ -953,6 +953,7 @@ dependencies = [
  "base64",
  "hkdf",
  "hmac",
+ "rcgen",
  "sha2",
  "thiserror 2.0.19",
 ]
@@ -961,6 +962,7 @@ dependencies = [
 name = "tandem_daemon"
 version = "0.1.0"
 dependencies = [
+ "rustls-pki-types",
  "tandem_audio",
  "tandem_bluetooth",
  "tandem_core",
@@ -971,6 +973,7 @@ dependencies = [
  "tandem_testkit",
  "tandem_transport",
  "thiserror 2.0.19",
+ "tokio",
 ]
 
 [[package]]

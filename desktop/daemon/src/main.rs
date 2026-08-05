@@ -10,6 +10,7 @@ mod app;
 mod config;
 mod ipc_service;
 mod logging;
+mod session_loop;
 mod store;
 
 use std::process::ExitCode;

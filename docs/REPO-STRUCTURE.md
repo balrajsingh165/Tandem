@@ -302,6 +302,7 @@ tandem/
 │   │       ├── config.rs
 │   │       ├── ipc_service.rs
 │   │       ├── logging.rs
+│   │       ├── session_loop.rs
 │   │       └── store.rs
 │   └── ui/
 │       ├── package.json
@@ -1124,6 +1125,11 @@ Entries below beginning `…/` are relative to `android/app/src/main/kotlin/com/
 - **`desktop/daemon/src/logging.rs`** — tracing setup.
   > Initializes tracing subscribers (stderr + rolling file), with call metadata redaction in
   > release builds per the privacy policy in docs/08.
+- **`desktop/daemon/src/session_loop.rs`** — LAN session supervision and reconnect.
+  > Supervises the LAN session: connects to the paired phone, resumes the mirror
+  > against phone truth, pumps events into the controller, and reconnects with
+  > backoff when the link drops. Losing the link degrades the desktop to a stale
+  > mirror; it never ends a call (ADR-0007).
 - **`desktop/daemon/src/store.rs`** — SQLite mirror + identity persistence.
   > rusqlite-backed local store (tandem-cache.db): paired phone identity row, call-log mirror
   > with sync cursor, and settings not held in config.toml. Schema DDL in docs/09.
