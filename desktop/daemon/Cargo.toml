@@ -22,7 +22,7 @@ tandem_pairing = { path = "../crates/pairing" }
 tandem_proto = { path = "../crates/proto" }
 tandem_transport = { path = "../crates/transport" }
 thiserror.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "net", "io-util", "sync", "time"] }
 rustls-pki-types.workspace = true
 
 [dev-dependencies]

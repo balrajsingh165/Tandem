@@ -14,6 +14,9 @@ pub struct Config {
     pub audio_playback_device: String,
     pub log_level: LogLevel,
     pub ipc_socket_override: Option<String>,
+    /// Where identity and cache live; defaults per platform when unset.
+    pub state_directory: Option<std::path::PathBuf>,
+    pub desktop_display_name: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,8 +61,17 @@ impl Default for Config {
             audio_playback_device: String::new(),
             log_level: LogLevel::Info,
             ipc_socket_override: None,
+            state_directory: None,
+            desktop_display_name: default_display_name(),
         }
     }
+}
+
+/// The name the phone shows in its paired-devices list.
+fn default_display_name() -> String {
+    std::env::var("COMPUTERNAME")
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .unwrap_or_else(|_| "Tandem Desktop".to_string())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -122,6 +134,12 @@ impl Config {
                 "--ipc-socket" => {
                     self.ipc_socket_override = Some(take_value(&args, &mut index, &flag)?)
                 }
+                "--state-dir" => {
+                    self.state_directory = Some(std::path::PathBuf::from(take_value(
+                        &args, &mut index, &flag,
+                    )?))
+                }
+                "--name" => self.desktop_display_name = take_value(&args, &mut index, &flag)?,
                 other => return Err(ConfigError::UnknownFlag(other.to_string())),
             }
             index += 1;

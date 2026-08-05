@@ -15,8 +15,8 @@ mod store;
 
 use std::process::ExitCode;
 
-use tandem_ipc::api::{IpcRequest, IpcResponse};
-use tandem_ipc::server::IpcService;
+use tandem_crypto::{FileSecretStore, IdentityCredentials};
+use tandem_ipc::server::{EventPublisher, IpcServer};
 use tandem_ipc::socket::Endpoint;
 
 use crate::app::App;
@@ -36,29 +36,101 @@ fn main() -> ExitCode {
 
     logging::init(config.log_level);
 
-    let app = App::build(config);
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            eprintln!("tandem-daemon: could not start the async runtime: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    runtime.block_on(run(config))
+}
+
+async fn run(config: Config) -> ExitCode {
+    let identity = match load_identity(&config) {
+        Ok(identity) => identity,
+        Err(error) => {
+            eprintln!("tandem-daemon: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let app = App::build(config.clone());
     if !app.health().is_usable() {
         eprintln!("tandem-daemon: control plane failed to start");
         return ExitCode::FAILURE;
     }
 
-    let endpoint = Endpoint::default_for_platform(std::env::var("XDG_RUNTIME_DIR").ok().as_deref());
-    let mut service = DaemonIpcService::new(app);
-
-    let Ok(IpcResponse::Status(status)) = service.handle(IpcRequest::Status) else {
-        eprintln!("tandem-daemon: status probe failed");
-        return ExitCode::FAILURE;
-    };
+    let desktop_audio = app.desktop_audio_available();
+    let endpoint = ipc_endpoint(&config);
+    let server = IpcServer::new(DaemonIpcService::new(app), EventPublisher::new());
 
     println!(
-        "tandem-daemon ready on {} (control: up, desktop audio: {})",
+        "tandem-daemon ready on {} (identity {}, desktop audio: {})",
         endpoint.describe(),
-        if status.desktop_audio_available {
+        &identity.identity.device_id[..12.min(identity.identity.device_id.len())],
+        if desktop_audio {
             "available"
         } else {
             "unavailable — Tier B-lite"
         }
     );
 
-    ExitCode::SUCCESS
+    // Serving runs until the process is signalled; a bind failure is fatal
+    // because the UI would have nothing to talk to.
+    tokio::select! {
+        result = server.serve(&endpoint) => {
+            if let Err(error) = result {
+                eprintln!("tandem-daemon: IPC endpoint unavailable: {error}");
+                return ExitCode::FAILURE;
+            }
+            ExitCode::SUCCESS
+        }
+        _ = shutdown_signal() => {
+            println!("tandem-daemon: shutting down");
+            ExitCode::SUCCESS
+        }
+    }
+}
+
+/// Loads or creates this desktop's identity. Without it there is nothing to
+/// present in a TLS handshake, so pairing and every session would fail later
+/// with a confusing error.
+fn load_identity(config: &Config) -> Result<IdentityCredentials, String> {
+    let store = FileSecretStore::new(secrets_directory(config));
+    tandem_crypto::identity::load_or_create(&store, &config.desktop_display_name)
+        .map_err(|e| format!("could not open the device identity: {e}"))
+}
+
+fn secrets_directory(config: &Config) -> std::path::PathBuf {
+    config
+        .state_directory
+        .clone()
+        .unwrap_or_else(default_state_directory)
+        .join("secrets")
+}
+
+fn default_state_directory() -> std::path::PathBuf {
+    let base = std::env::var_os("XDG_STATE_HOME")
+        .or_else(|| std::env::var_os("LOCALAPPDATA"))
+        .or_else(|| std::env::var_os("HOME"))
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    base.join("tandem")
+}
+
+fn ipc_endpoint(config: &Config) -> Endpoint {
+    match &config.ipc_socket_override {
+        Some(path) if cfg!(windows) => Endpoint::WindowsPipe(path.clone()),
+        Some(path) => Endpoint::UnixSocket(std::path::PathBuf::from(path)),
+        None => Endpoint::default_for_platform(std::env::var("XDG_RUNTIME_DIR").ok().as_deref()),
+    }
+}
+
+async fn shutdown_signal() {
+    let _ = tokio::signal::ctrl_c().await;
 }

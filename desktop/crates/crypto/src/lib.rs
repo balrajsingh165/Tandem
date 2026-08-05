@@ -11,4 +11,4 @@ pub mod secrets;
 pub use error::CryptoError;
 pub use identity::{DeviceIdentity, IdentityCredentials};
 pub use pinning::SpkiFingerprint;
-pub use secrets::{InMemorySecretStore, SecretStore};
+pub use secrets::{FileSecretStore, InMemorySecretStore, SecretStore};
