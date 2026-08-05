@@ -11,10 +11,12 @@ import android.content.pm.ServiceInfo
 import android.os.IBinder
 import com.tandem.gateway.bluetooth.HfpAgMonitor
 import com.tandem.gateway.calllog.CallLogObserver
+import com.tandem.gateway.domain.port.EmergencyNumberSource
 import com.tandem.gateway.domain.port.IdentityStore
 import com.tandem.gateway.domain.port.LanServer
 import com.tandem.gateway.domain.port.SettingsRepository
 import com.tandem.gateway.domain.usecase.ObserveCallState
+import com.tandem.gateway.telecom.TelecomBridgeImpl
 import com.tandem.gateway.transport.NsdAdvertiser
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -38,6 +40,8 @@ class GatewayForegroundService : Service() {
     @Inject lateinit var identityStore: IdentityStore
     @Inject lateinit var settingsRepository: SettingsRepository
     @Inject lateinit var notifications: GatewayNotifications
+    @Inject lateinit var emergencyNumberSource: EmergencyNumberSource
+    @Inject lateinit var telecomBridge: TelecomBridgeImpl
 
     private val scope = CoroutineScope(SupervisorJob())
     private var running = false
@@ -81,6 +85,10 @@ class GatewayForegroundService : Service() {
     private fun startSubsystems(): Job = scope.launch {
         val identity = identityStore.identity().getOrNull() ?: return@launch
         val port = settingsRepository.listenPort.first()
+
+        // Loaded before any call can be observed, so an emergency call is flagged
+        // read-only from the first snapshot rather than after a delay (ADR-0008).
+        telecomBridge.setEmergencyNumbers(emergencyNumberSource.currentEmergencyNumbers())
 
         lanServer.start(port)
         nsdAdvertiser.register(port, identity.deviceId, identity.displayName)

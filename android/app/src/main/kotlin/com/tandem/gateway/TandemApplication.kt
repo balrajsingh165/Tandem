@@ -7,7 +7,6 @@ package com.tandem.gateway
 
 import android.app.Application
 import android.content.Intent
-import com.tandem.gateway.di.ApplicationScope
 import com.tandem.gateway.domain.port.PairedDeviceRepository
 import com.tandem.gateway.service.GatewayForegroundService
 import dagger.hilt.android.HiltAndroidApp
@@ -21,9 +20,9 @@ class TandemApplication : Application() {
 
     @Inject lateinit var pairedDeviceRepository: PairedDeviceRepository
 
-    @Inject
-    @ApplicationScope
-    lateinit var applicationScope: CoroutineScope
+    // Unqualified on purpose: a qualifier on a Kotlin `lateinit` field lands on
+    // the property rather than the field, which Dagger does not read.
+    @Inject lateinit var applicationScope: CoroutineScope
 
     override fun onCreate() {
         super.onCreate()

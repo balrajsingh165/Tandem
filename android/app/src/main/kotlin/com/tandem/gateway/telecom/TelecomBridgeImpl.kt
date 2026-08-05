@@ -119,15 +119,43 @@ class TelecomBridgeImpl @Inject constructor(
             }
         }
 
+    /**
+     * A typed failure raised by the action keeps its own meaning; only an
+     * unexpected framework throw becomes InvalidCallState, so a missing call is
+     * never reported as a bad state.
+     */
     private inline fun withCall(
         callId: String,
         command: String,
         action: (TelecomCall) -> Unit,
     ): Result<Unit> {
         val call = tracked[callId] ?: return Result.failure(TelecomError.CallNotFound(callId))
-        return runCatching { action(call) }
-            .recoverCatching { throw TelecomError.InvalidCallState(callId, command) }
+        return runCatching { action(call) }.recoverCatching { cause ->
+            throw if (cause is TelecomError) cause else TelecomError.InvalidCallState(callId, command)
+        }
     }
+
+    /**
+     * Emergency numbers for the current SIM, cached because call mapping is
+     * synchronous. Telecom's network-identified property is authoritative when
+     * present but is not always set, so the number is checked too — a call
+     * wrongly treated as ordinary would be remotely controllable (ADR-0008).
+     */
+    @Volatile
+    private var emergencyNumbers: List<String> = emptyList()
+
+    fun setEmergencyNumbers(numbers: List<String>) {
+        emergencyNumbers = numbers.map(::normalizeDialString)
+        publish()
+    }
+
+    private fun isEmergencyNumber(number: String?): Boolean {
+        val normalized = normalizeDialString(number.orEmpty())
+        return normalized.isNotEmpty() && normalized in emergencyNumbers
+    }
+
+    private fun normalizeDialString(value: String): String =
+        value.filter { it.isDigit() || it == '*' || it == '#' }
 
     private fun publish() {
         _calls.value = tracked.entries.map { (id, call) -> toDomain(id, call) }
@@ -145,7 +173,8 @@ class TelecomBridgeImpl @Inject constructor(
             isConference = CallStateMapper.isConference(details.callProperties),
             canHold = CallStateMapper.canHold(details.callCapabilities),
             canMerge = CallStateMapper.canMerge(details.callCapabilities),
-            isEmergency = CallStateMapper.isEmergency(details.callProperties),
+            isEmergency = CallStateMapper.isEmergency(details.callProperties) ||
+                isEmergencyNumber(details.handle?.schemeSpecificPart),
             disconnectCause = CallStateMapper.mapDisconnectCause(details.disconnectCause),
             simSlot = -1,
         )

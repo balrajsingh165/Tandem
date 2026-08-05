@@ -36,6 +36,77 @@ impl DiscoveredPhone {
     }
 }
 
+/// Fully-qualified service type as mDNS expects it.
+pub const SERVICE_FQDN: &str = "_tandem._tcp.local.";
+
+/// Browses the LAN for the paired phone. Returns as soon as a candidate whose
+/// advertised device id matches is found, or None when the timeout expires.
+///
+/// Discovery is a hint, never an authorization: the returned endpoint still has
+/// to pass the pinned-key TLS handshake before it is trusted (docs/08).
+pub async fn find_paired_phone(
+    paired_device_id: &str,
+    timeout: std::time::Duration,
+) -> Result<Option<DiscoveredPhone>, TransportError> {
+    if paired_device_id.is_empty() {
+        return Ok(None);
+    }
+
+    let daemon = mdns_sd::ServiceDaemon::new().map_err(|e| TransportError::ConnectFailed {
+        endpoint: SERVICE_FQDN.into(),
+        reason: e.to_string(),
+    })?;
+
+    let receiver = daemon
+        .browse(SERVICE_FQDN)
+        .map_err(|e| TransportError::ConnectFailed {
+            endpoint: SERVICE_FQDN.into(),
+            reason: e.to_string(),
+        })?;
+
+    let wanted = paired_device_id.to_string();
+    let found = tokio::task::spawn_blocking(move || {
+        let deadline = std::time::Instant::now() + timeout;
+
+        while std::time::Instant::now() < deadline {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            let Ok(event) = receiver.recv_timeout(remaining) else {
+                break;
+            };
+
+            if let mdns_sd::ServiceEvent::ServiceResolved(info) = event {
+                if let Some(candidate) = from_resolved(&info) {
+                    if candidate.matches_paired(&wanted) {
+                        return Some(candidate);
+                    }
+                }
+            }
+        }
+        None
+    })
+    .await
+    .map_err(|e| TransportError::ConnectFailed {
+        endpoint: SERVICE_FQDN.into(),
+        reason: e.to_string(),
+    })?;
+
+    let _ = daemon.shutdown();
+    Ok(found)
+}
+
+/// Converts one resolved advertisement into a candidate, or None when it lacks
+/// the records Tandem needs.
+fn from_resolved(info: &mdns_sd::ServiceInfo) -> Option<DiscoveredPhone> {
+    let address = info.get_addresses().iter().next()?.to_string();
+    let records: Vec<(String, String)> = info
+        .get_properties()
+        .iter()
+        .map(|property| (property.key().to_string(), property.val_str().to_string()))
+        .collect();
+
+    parse_txt_records(&address, info.get_port(), &records).ok()
+}
+
 /// Parses the TXT key/value pairs of an advertisement into a candidate.
 pub fn parse_txt_records(
     host: &str,
