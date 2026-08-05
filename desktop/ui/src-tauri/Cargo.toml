@@ -1,4 +1,4 @@
-﻿# Manifest for the tandem-ui Tauri shell: tauri 2.x, tandem_ipc client
+# Manifest for the tandem-ui Tauri shell: tauri 2.x, tandem_ipc client
 # dependency, and bundler metadata.
 
 [package]

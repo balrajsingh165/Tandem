@@ -15,6 +15,62 @@ pub const EVENT_CHANNEL: &str = "tandem://event";
 /// this only has to be unique per call rather than globally ordered.
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
+/// How long to wait before re-dialing a daemon that is not answering.
+const RECONNECT_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Holds one long-lived connection open purely to receive notifications, and
+/// re-establishes it whenever the daemon restarts. Without this the webview sees
+/// only its own replies and never learns that a call arrived, a pairing
+/// progressed, or a dial was refused.
+pub fn spawn_event_stream(app: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            if let Err(()) = stream_events(&app).await {
+                tokio::time::sleep(RECONNECT_DELAY).await;
+            }
+        }
+    });
+}
+
+async fn stream_events(app: &tauri::AppHandle) -> Result<(), ()> {
+    use tauri::Emitter;
+
+    let stream = open_stream().await.ok_or(())?;
+    let mut lines = BufReader::new(stream).lines();
+
+    while let Ok(Some(line)) = lines.next_line().await {
+        let Ok(frame) = serde_json::from_str::<serde_json::Value>(&line) else {
+            continue;
+        };
+        // Replies belong to whoever asked; only notifications are broadcast.
+        if frame.get("id").is_some() {
+            continue;
+        }
+        if let Some(payload) = frame.get("params") {
+            let _ = app.emit(EVENT_CHANNEL, payload.clone());
+        }
+    }
+
+    Err(())
+}
+
+#[cfg(windows)]
+async fn open_stream() -> Option<impl tokio::io::AsyncRead + Unpin> {
+    use tokio::net::windows::named_pipe::ClientOptions;
+
+    ClientOptions::new().open(r"\\.\pipe\tandem-daemon").ok()
+}
+
+#[cfg(unix)]
+async fn open_stream() -> Option<impl tokio::io::AsyncRead + Unpin> {
+    let path = std::env::var("XDG_RUNTIME_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from("/tmp"))
+        .join("tandem/daemon.sock");
+
+    tokio::net::UnixStream::connect(path).await.ok()
+}
+
 /// Error shape the webview receives. `code` is the stable JSON-RPC code from
 /// tandem_ipc, so the UI branches on cause rather than message text.
 #[derive(Debug, Clone, Serialize)]
