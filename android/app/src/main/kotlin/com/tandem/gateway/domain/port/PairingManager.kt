@@ -14,6 +14,16 @@ interface PairingManager {
     /** Opens a single-use window; the token expires after [ttlSeconds]. */
     suspend fun openWindow(ttlSeconds: Int = DEFAULT_TTL_SECONDS): Result<PairingInvitation>
 
+    /**
+     * Opens a window for an offer scanned off a desktop's screen. The token comes
+     * from the desktop, and only the key fingerprint printed in the code may
+     * claim it — a desktop that answers with any other key is refused.
+     */
+    suspend fun openScannedWindow(
+        offer: ScannedOffer,
+        ttlSeconds: Int = DEFAULT_TTL_SECONDS,
+    ): Result<Unit>
+
     suspend fun closeWindow()
 
     /** The user's verdict on the waiting candidate. */
@@ -34,10 +44,20 @@ data class PairingInvitation(
     val expiresAtMs: Long,
 )
 
+/** What this phone read out of a desktop's on-screen pairing code. */
+data class ScannedOffer(
+    val fingerprint: String,
+    val token: String,
+    val desktopName: String,
+)
+
 sealed interface PairingWindowState {
     data object Closed : PairingWindowState
 
     data class Open(val invitation: PairingInvitation) : PairingWindowState
+
+    /** Scanned a desktop's code; waiting for that desktop to connect. */
+    data class AwaitingDesktop(val desktopName: String) : PairingWindowState
 
     /** A desktop presented a valid token; the user must now confirm. */
     data class AwaitingConfirmation(
@@ -59,6 +79,11 @@ sealed class PairingError(message: String) : Exception(message) {
     data object TokenAlreadyUsed : PairingError("the pairing code has already been used")
 
     data object TokenMismatch : PairingError("the pairing code did not match")
+
+    data object FingerprintMismatch :
+        PairingError("that computer's key does not match the code you scanned")
+
+    data object InvalidOffer : PairingError("that is not a Tandem pairing code")
 
     data object CertificateBindingFailed :
         PairingError("the presented certificate did not match the TLS session")

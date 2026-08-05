@@ -122,6 +122,11 @@ dependencies {
     implementation(libs.bouncycastle)
     implementation(libs.zxing.core)
 
+    implementation(libs.camera.core)
+    implementation(libs.camera.camera2)
+    implementation(libs.camera.lifecycle)
+    implementation(libs.camera.view)
+
     testImplementation(libs.junit)
     testImplementation(libs.coroutines.test)
     testImplementation(libs.turbine)

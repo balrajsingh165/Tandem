@@ -8,6 +8,7 @@ package com.tandem.gateway.domain.usecase
 import com.tandem.gateway.domain.model.PairedDesktop
 import com.tandem.gateway.domain.port.PairedDeviceRepository
 import com.tandem.gateway.domain.port.PairingManager
+import com.tandem.gateway.domain.port.ScannedOffer
 import javax.inject.Inject
 
 class PairDesktop @Inject constructor(
@@ -16,6 +17,11 @@ class PairDesktop @Inject constructor(
 ) {
     suspend fun openWindow(ttlSeconds: Int = PairingManager.DEFAULT_TTL_SECONDS) =
         pairingManager.openWindow(ttlSeconds)
+
+    suspend fun openScannedWindow(
+        offer: ScannedOffer,
+        ttlSeconds: Int = PairingManager.DEFAULT_TTL_SECONDS,
+    ) = pairingManager.openScannedWindow(offer, ttlSeconds)
 
     suspend fun closeWindow() = pairingManager.closeWindow()
 

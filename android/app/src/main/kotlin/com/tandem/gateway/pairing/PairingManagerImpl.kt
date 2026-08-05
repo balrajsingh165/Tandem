@@ -13,12 +13,19 @@ import com.tandem.gateway.domain.port.PairingError
 import com.tandem.gateway.domain.port.PairingInvitation
 import com.tandem.gateway.domain.port.PairingManager
 import com.tandem.gateway.domain.port.PairingWindowState
+import com.tandem.gateway.domain.port.ScannedOffer
 import com.tandem.gateway.domain.port.SettingsRepository
 import java.security.SecureRandom
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -60,6 +67,12 @@ class PairingManagerImpl @Inject constructor(
     private var candidate: PairingCandidate? = null
     private var verdict: CompletableDeferred<PairedDesktop?>? = null
 
+    /** Set only for a scanned offer: the one key allowed to claim the token. */
+    private var expectedFingerprint: String? = null
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var expiryJob: Job? = null
+
     override suspend fun openWindow(ttlSeconds: Int): Result<PairingInvitation> = mutex.withLock {
         if (session != null) return Result.failure(PairingError.WindowBusy)
 
@@ -90,6 +103,45 @@ class PairingManagerImpl @Inject constructor(
         Result.success(invitation)
     }
 
+    override suspend fun openScannedWindow(
+        offer: ScannedOffer,
+        ttlSeconds: Int,
+    ): Result<Unit> = mutex.withLock {
+        // Only a desktop actually waiting on the user's verdict may hold the
+        // window; anything else is a leftover the new scan should replace, or a
+        // second scan could never succeed.
+        if (candidate != null) return Result.failure(PairingError.WindowBusy)
+        if (session != null) teardown(null)
+
+        val expiresAtMs = System.currentTimeMillis() + ttlSeconds * 1_000L
+        session = PairingSession(
+            token = offer.token,
+            expiresAtMs = expiresAtMs,
+            requireShortCode = false,
+        )
+        expectedFingerprint = offer.fingerprint
+
+        tlsServerFactory.setPairingWindowOpen(true)
+        _state.value = PairingWindowState.AwaitingDesktop(offer.desktopName)
+        armExpiry(expiresAtMs)
+        Result.success(Unit)
+    }
+
+    /**
+     * Closes an unclaimed window once its token dies. Without this the screen
+     * would wait on a desktop that can no longer be admitted, with no way back
+     * to the scanner.
+     */
+    private fun armExpiry(expiresAtMs: Long) {
+        expiryJob?.cancel()
+        expiryJob = scope.launch {
+            delay((expiresAtMs - System.currentTimeMillis()).coerceAtLeast(0L))
+            mutex.withLock {
+                if (candidate == null && session != null) teardown(PairingError.TokenExpired)
+            }
+        }
+    }
+
     override suspend fun closeWindow() = mutex.withLock { teardown(null) }
 
     /**
@@ -104,6 +156,15 @@ class PairingManagerImpl @Inject constructor(
     ): Result<Unit> = mutex.withLock {
         val active = session ?: return Result.failure(PairingError.WindowBusy)
         if (candidate != null) return Result.failure(PairingError.WindowBusy)
+
+        // A scanned offer names the exact key the user pointed the camera at, so
+        // any other key claiming the token is a different machine (docs/07).
+        expectedFingerprint?.let { expected ->
+            if (presented.spkiSha256 != expected) {
+                teardown(PairingError.FingerprintMismatch)
+                return Result.failure(PairingError.FingerprintMismatch)
+            }
+        }
 
         active.presentToken(token, System.currentTimeMillis())
             .onFailure { cause ->
@@ -163,6 +224,7 @@ class PairingManagerImpl @Inject constructor(
         session = null
         candidate = null
         verdict = null
+        expectedFingerprint = null
         tlsServerFactory.setPairingWindowOpen(false)
         _state.value = PairingWindowState.Completed(desktop)
         Result.success(desktop)
@@ -172,11 +234,14 @@ class PairingManagerImpl @Inject constructor(
 
     /** Closes the window and releases any waiter, so no caller hangs forever. */
     private fun teardown(error: PairingError?) {
+        expiryJob?.cancel()
+        expiryJob = null
         session?.expire()
         session = null
         candidate = null
         verdict?.complete(null)
         verdict = null
+        expectedFingerprint = null
         tlsServerFactory.setPairingWindowOpen(false)
         _state.value = error?.let { PairingWindowState.Failed(it) } ?: PairingWindowState.Closed
     }
