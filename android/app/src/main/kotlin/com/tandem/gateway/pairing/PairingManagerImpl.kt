@@ -67,7 +67,9 @@ class PairingManagerImpl @Inject constructor(
         val expiresAtMs = System.currentTimeMillis() + ttlSeconds * 1_000L
 
         val invitation = PairingInvitation(
-            host = "",
+            // The desktop dials this address, so an empty host would make the
+            // payload unusable no matter how the user transfers it.
+            host = LocalAddress.current().orEmpty(),
             port = settingsRepository.listenPort.first(),
             fingerprint = identity.spkiSha256,
             token = generateToken(),
