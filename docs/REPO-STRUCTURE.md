@@ -142,7 +142,9 @@ tandem/
 │           │       ├── pairing/
 │           │       │   ├── PairingManagerImpl.kt
 │           │       │   ├── PairingSession.kt
-│           │       │   └── QrPayloadCodec.kt
+│           │       │   ├── QrPayloadCodec.kt
+│           │       │   ├── DesktopOfferCodec.kt
+│           │       │   └── QrImageAnalyzer.kt
 │           │       ├── crypto/
 │           │       │   ├── IdentityStoreImpl.kt
 │           │       │   ├── DeviceCertificates.kt
@@ -170,6 +172,7 @@ tandem/
 │           │           ├── status/StatusViewModel.kt
 │           │           ├── pairing/PairingScreen.kt
 │           │           ├── pairing/PairingViewModel.kt
+│           │           ├── pairing/QrScannerView.kt
 │           │           ├── settings/SettingsScreen.kt
 │           │           ├── settings/SettingsViewModel.kt
 │           │           ├── incall/InCallActivity.kt
@@ -222,6 +225,7 @@ tandem/
 │   │   │   └── src/
 │   │   │       ├── lib.rs
 │   │   │       ├── qr.rs
+│   │   │       ├── offer.rs
 │   │   │       ├── flow.rs
 │   │   │       ├── short_code.rs
 │   │   │       └── error.rs
@@ -639,6 +643,15 @@ Entries below beginning `…/` are relative to `android/app/src/main/kotlin/com/
 - **`…/pairing/QrPayloadCodec.kt`** — QR payload build/parse.
   > Builds the pairing QR payload (host, port, SPKI fingerprint, one-time token, name) and
   > renders it for display. Format is pinned in docs/07-pairing-and-auth.md; token TTL 120 s.
+- **`…/pairing/DesktopOfferCodec.kt`** — Scanned desktop offer parsing.
+  > Parses the pairing offer a desktop renders on screen and this phone scans with its camera:
+  > version, the desktop's SPKI fingerprint to expect, the one-time token to accept, and the
+  > name to show in the confirmation sheet. Mirror of tandem_pairing::DesktopOffer; the compact
+  > keys are wire contract.
+- **`…/pairing/QrImageAnalyzer.kt`** — Camera-frame QR decoding.
+  > CameraX ImageAnalysis.Analyzer that decodes QR codes from the preview stream with ZXing,
+  > reading the luminance plane directly so no bitmap is allocated per frame. Reports the first
+  > successful decode once and then ignores the rest.
 
 #### crypto — identity, certs, TLS
 
@@ -723,12 +736,18 @@ Entries below beginning `…/` are relative to `android/app/src/main/kotlin/com/
 - **`…/ui/status/StatusViewModel.kt`** — Status screen state holder. `[Tier A]`
   > ViewModel deriving StatusScreen state from ObserveCallState, LanServer status, and
   > repositories. UI state only; commands delegate to use-cases.
-- **`…/ui/pairing/PairingScreen.kt`** — QR display + confirmation sheet.
-  > Compose screen for pairing: renders the QR payload, the manual short-code path, and the
-  > accept/reject confirmation sheet with the desktop's name and fingerprint.
+- **`…/ui/pairing/PairingScreen.kt`** — QR scanner + confirmation sheet.
+  > Compose screen for pairing: requests the camera, scans the code shown on the desktop,
+  > reports progress while that desktop connects, and renders the accept/reject confirmation
+  > sheet with its name and fingerprint.
+- **`…/ui/pairing/QrScannerView.kt`** — CameraX preview for scanning.
+  > Camera preview composable for scanning a desktop's pairing code: binds a CameraX preview
+  > plus QrImageAnalyzer to the current lifecycle, releases the camera on disposal, and reports
+  > the first decoded payload to its caller.
 - **`…/ui/pairing/PairingViewModel.kt`** — Pairing flow state holder.
-  > ViewModel driving PairingScreen from PairingManager events: window open/expiry, candidate
-  > arrival, short-code display, verdict submission.
+  > ViewModel driving PairingScreen from PairingManager events: scanning a desktop's pairing
+  > code, the legacy show-a-code window, candidate arrival, short-code display, and verdict
+  > submission.
 - **`…/ui/settings/SettingsScreen.kt`** — Settings + paired-desktop management.
   > Compose screen for settings: paired desktop list with revoke actions, autostart toggle,
   > port override, device name. Revocation confirmation copy warns it is immediate.
@@ -857,6 +876,9 @@ Entries below beginning `…/` are relative to `android/app/src/main/kotlin/com/
   > Browses _tandem._tcp via mdns-sd, parses TXT records (version, device id, name), and
   > emits candidate endpoints — filtered against the paired phone's identity before any
   > connection attempt.
+- **`desktop/crates/transport/examples/discover.rs`** — mDNS reachability probe.
+  > Development probe: browses `_tandem._tcp` for a few seconds and prints the first phone it
+  > finds, so mDNS reachability can be checked without pairing.
 - **`desktop/crates/transport/src/client.rs`** — WS-over-mTLS session client.
   > TransportClient implementation: dials the phone endpoint with the pinned-peer TLS config,
   > performs SessionHello/SessionWelcome, then pumps Envelope frames bidirectionally with
@@ -890,6 +912,11 @@ Entries below beginning `…/` are relative to `android/app/src/main/kotlin/com/
   > Parses and validates the pairing QR payload (host, port, SPKI fingerprint, one-time
   > token, name); rejects unknown versions and malformed fingerprints before any network
   > activity.
+- **`desktop/crates/pairing/src/offer.rs`** — Scan-to-pair offer + exchange.
+  > Desktop-issued pairing offer: the payload this computer renders as a QR code for the
+  > phone's camera, and the exchange that follows. The phone authenticates this desktop by
+  > scanning its key fingerprint; this desktop learns the phone's key on connect and pins it
+  > from then on, with the short code as the check against a machine in the middle (docs/07).
 - **`desktop/crates/pairing/src/flow.rs`** — Pairing state machine.
   > Pairing flow driver: provisional TLS connect (pin from QR), PairingRequest submission,
   > PairingAwaitConfirmEvent handling, and PairingDecision finalization — persisting the
