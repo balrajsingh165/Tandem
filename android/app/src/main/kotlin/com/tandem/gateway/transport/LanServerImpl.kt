@@ -358,9 +358,6 @@ class LanServerImpl @Inject constructor(
         sessionRegistry.close(deviceId, reason)
     }
 
-    override suspend fun claimCall(callId: String, deviceId: String): Boolean =
-        sessionRegistry.claim(callId, deviceId)
-
     companion object {
         /** WebSocket path the desktop client dials. */
         const val WS_PATH: String = "/tlp/v1"

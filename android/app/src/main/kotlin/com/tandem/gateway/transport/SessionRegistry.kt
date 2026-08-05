@@ -5,6 +5,7 @@
  */
 package com.tandem.gateway.transport
 
+import com.tandem.gateway.domain.port.CallClaimArbiter
 import com.tandem.gateway.domain.port.SessionInfo
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
@@ -16,7 +17,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 @Singleton
-class SessionRegistry @Inject constructor() {
+class SessionRegistry @Inject constructor() : CallClaimArbiter {
 
     private val sessions = ConcurrentHashMap<String, DesktopSession>()
     private val claims = ConcurrentHashMap<String, String>()
@@ -51,14 +52,15 @@ class SessionRegistry @Inject constructor() {
      * claim a call id wins, and every later caller is told it was already
      * handled. Holding the mutex makes the check-and-set atomic across sessions.
      */
-    suspend fun claim(callId: String, deviceId: String): Boolean = claimMutex.withLock {
-        val existing = claims[callId]
-        if (existing != null) return@withLock existing == deviceId
-        claims[callId] = deviceId
-        true
-    }
+    override suspend fun claimCall(callId: String, deviceId: String): Boolean =
+        claimMutex.withLock {
+            val existing = claims[callId]
+            if (existing != null) return@withLock existing == deviceId
+            claims[callId] = deviceId
+            true
+        }
 
-    fun releaseClaim(callId: String) {
+    override fun releaseClaim(callId: String) {
         claims.remove(callId)
     }
 

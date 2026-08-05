@@ -25,12 +25,22 @@ interface LanServer {
 
     /** Ends a desktop's session immediately after telling it why (docs/07). */
     suspend fun revokeSession(deviceId: String, reason: String)
+}
 
+/**
+ * The answer-arbitration primitive, kept separate from LanServer so a use-case
+ * can depend on it without depending on the server that routes to that use-case
+ * — which would be a dependency cycle.
+ */
+interface CallClaimArbiter {
     /**
      * Atomically claims a ringing call for one desktop. The first claim wins;
      * later ones get false and must render the resulting state, not an error.
      */
     suspend fun claimCall(callId: String, deviceId: String): Boolean
+
+    /** Frees a claim once the call is over, so a reused id is claimable again. */
+    fun releaseClaim(callId: String)
 }
 
 data class ServerStatus(

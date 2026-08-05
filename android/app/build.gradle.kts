@@ -57,7 +57,14 @@ android {
     }
 
     packaging {
-        resources.excludes += setOf("/META-INF/{AL2.0,LGPL2.1}")
+        // The three BouncyCastle artifacts each ship the same multi-release
+        // OSGI manifest; none of it is needed at runtime.
+        resources.excludes += setOf(
+            "/META-INF/{AL2.0,LGPL2.1}",
+            "/META-INF/versions/9/OSGI-INF/MANIFEST.MF",
+            "/META-INF/DEPENDENCIES",
+            "/META-INF/INDEX.LIST",
+        )
     }
 
     testOptions {

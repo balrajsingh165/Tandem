@@ -33,7 +33,7 @@ class TandemInCallService : InCallService() {
             telecomBridge.onCallChanged(call)
         }
 
-        override fun onCannotHandleCall(call: Call) {
+        override fun onConferenceableCallsChanged(call: Call, conferenceableCalls: List<Call>) {
             telecomBridge.onCallChanged(call)
         }
     }

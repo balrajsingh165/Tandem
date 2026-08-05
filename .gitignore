@@ -15,6 +15,10 @@ android/.kotlin/
 .idea/
 *.iml
 
+# Locally downloaded build tooling (Gradle distribution, SDK command-line
+# tools). Machine-specific and large; never committed.
+.tooling/
+
 # ============================================================================
 # Rust / Cargo
 # ============================================================================

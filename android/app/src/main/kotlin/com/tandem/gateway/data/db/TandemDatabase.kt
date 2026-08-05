@@ -7,10 +7,12 @@ package com.tandem.gateway.data.db
 import androidx.room.Database
 import androidx.room.RoomDatabase
 
+// Schema export stays off until a migration exists to validate against; Room
+// warns otherwise on every build.
 @Database(
     entities = [PairedDesktopEntity::class],
     version = TandemDatabase.VERSION,
-    exportSchema = true,
+    exportSchema = false,
 )
 abstract class TandemDatabase : RoomDatabase() {
 

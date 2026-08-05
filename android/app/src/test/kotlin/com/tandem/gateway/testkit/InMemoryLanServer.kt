@@ -5,13 +5,14 @@
 package com.tandem.gateway.testkit
 
 import com.tandem.gateway.domain.model.CallSnapshot
+import com.tandem.gateway.domain.port.CallClaimArbiter
 import com.tandem.gateway.domain.port.LanServer
 import com.tandem.gateway.domain.port.ServerStatus
 import com.tandem.gateway.domain.port.SessionInfo
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
-class InMemoryLanServer : LanServer {
+class InMemoryLanServer : LanServer, CallClaimArbiter {
 
     private val _status = MutableStateFlow(ServerStatus(false, 0, "Test Phone"))
     override val status: StateFlow<ServerStatus> = _status
@@ -62,5 +63,9 @@ class InMemoryLanServer : LanServer {
         if (existing != null) return existing == deviceId
         claims[callId] = deviceId
         return true
+    }
+
+    override fun releaseClaim(callId: String) {
+        claims.remove(callId)
     }
 }

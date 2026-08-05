@@ -6,11 +6,13 @@
 package com.tandem.gateway.di
 
 import com.tandem.gateway.crypto.IdentityStoreImpl
+import com.tandem.gateway.domain.port.CallClaimArbiter
 import com.tandem.gateway.domain.port.IdentityStore
 import com.tandem.gateway.domain.port.LanServer
 import com.tandem.gateway.domain.port.PairingManager
 import com.tandem.gateway.pairing.PairingManagerImpl
 import com.tandem.gateway.transport.LanServerImpl
+import com.tandem.gateway.transport.SessionRegistry
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -24,6 +26,14 @@ abstract class TransportModule {
     @Binds
     @Singleton
     abstract fun bindLanServer(impl: LanServerImpl): LanServer
+
+    /**
+     * Bound to the registry rather than the server: the server routes to the
+     * use-case that arbitrates, so binding it here would close a cycle.
+     */
+    @Binds
+    @Singleton
+    abstract fun bindCallClaimArbiter(impl: SessionRegistry): CallClaimArbiter
 
     @Binds
     @Singleton
