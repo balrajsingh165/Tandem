@@ -6,12 +6,13 @@
 
   interface Props {
     disabled?: boolean;
+    compact?: boolean;
     ondigit: (digit: string) => void;
   }
 
-  const { disabled = false, ondigit }: Props = $props();
+  const { disabled = false, compact = false, ondigit }: Props = $props();
 
-  const keys = [
+  const keys: Array<[string, string]> = [
     ['1', ''],
     ['2', 'ABC'],
     ['3', 'DEF'],
@@ -25,49 +26,124 @@
     ['0', '+'],
     ['#', ''],
   ];
+
+  // Physical keyboard should drive the pad too; this is a desktop app.
+  function onKeydown(event: KeyboardEvent) {
+    if (disabled) return;
+    const key = event.key;
+    if (/^[0-9*#]$/.test(key)) {
+      ondigit(key);
+      pulse(key);
+    }
+  }
+
+  let pressed = $state<string | null>(null);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  function pulse(key: string) {
+    pressed = key;
+    clearTimeout(timer);
+    timer = setTimeout(() => (pressed = null), 160);
+  }
+
+  function press(key: string) {
+    ondigit(key);
+    pulse(key);
+  }
 </script>
 
-<div class="dialpad" role="group" aria-label="Dial pad">
+<svelte:window onkeydown={onKeydown} />
+
+<div class="pad" class:compact role="group" aria-label="Dial pad">
   {#each keys as [digit, letters] (digit)}
-    <button type="button" {disabled} onclick={() => ondigit(digit)} aria-label={digit}>
-      <span class="digit">{digit}</span>
+    <button
+      type="button"
+      {disabled}
+      class:active={pressed === digit}
+      onclick={() => press(digit)}
+      aria-label={digit}
+    >
+      <span class="digit numeric">{digit}</span>
       {#if letters}<span class="letters">{letters}</span>{/if}
     </button>
   {/each}
 </div>
 
 <style>
-  .dialpad {
+  .pad {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 0.5rem;
+    gap: 10px;
   }
 
   button {
+    position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    min-height: 3.25rem;
-    border: 1px solid var(--border, #d0d0d5);
-    border-radius: 0.5rem;
-    background: var(--surface, #fff);
-    cursor: pointer;
-    font: inherit;
+    gap: 1px;
+    aspect-ratio: 1.5;
+    border-radius: var(--radius-l);
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    box-shadow: var(--shadow-1);
+    overflow: hidden;
+    transition:
+      transform 0.16s var(--ease-spring),
+      background 0.16s ease,
+      border-color 0.16s ease;
+  }
+
+  /* A hairline of light along the top edge reads as a moulded key. */
+  button::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--hairline-strong), transparent);
+  }
+
+  button:hover:not(:disabled) {
+    background: var(--surface-hi);
+    border-color: var(--hairline-strong);
+  }
+
+  button:active:not(:disabled),
+  button.active:not(:disabled) {
+    transform: scale(0.94);
+    background: var(--surface-hi);
+    border-color: var(--accent-a35);
   }
 
   button:disabled {
-    opacity: 0.5;
+    opacity: 0.35;
     cursor: not-allowed;
   }
 
   .digit {
-    font-size: 1.25rem;
+    font-size: 22px;
+    font-weight: 500;
+    line-height: 1;
+  }
+
+  .compact .digit {
+    font-size: 18px;
+  }
+
+  .compact button {
+    aspect-ratio: 1.9;
+    border-radius: var(--radius);
   }
 
   .letters {
-    font-size: 0.625rem;
-    letter-spacing: 0.08em;
-    opacity: 0.6;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    color: var(--text-3);
+  }
+
+  .compact .letters {
+    display: none;
   }
 </style>

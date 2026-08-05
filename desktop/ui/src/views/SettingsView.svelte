@@ -12,102 +12,143 @@
 </script>
 
 <section class="settings">
-  <h1>Settings</h1>
+  <header>
+    <h1>Settings</h1>
+  </header>
 
-  <section class="group">
-    <h2>Paired phone</h2>
-    <p class="row">
-      <span>{$phoneName || 'No phone paired'}</span>
+  <div class="card">
+    <div class="row">
+      <span class="label">Paired phone</span>
       <StatusBadge status={$connection} />
-    </p>
-  </section>
+    </div>
+    <p class="value">{$phoneName || 'No phone paired'}</p>
+  </div>
 
-  <section class="group">
-    <h2>Desktop audio</h2>
+  <div class="card">
+    <span class="label">Desktop audio</span>
     {#if $desktopAudioAvailable}
-      <p class="row">Call audio can be routed to this computer over Bluetooth.</p>
+      <p class="body">Call audio can be routed to this computer over Bluetooth.</p>
     {:else}
-      <p class="row muted">
-        This build has no desktop audio path. Control and history work fully; talk on the handset
+      <p class="body muted">
+        This build has no desktop audio path. Control and history work fully — talk on the handset,
         or pair a Bluetooth headset directly to your phone.
       </p>
     {/if}
-  </section>
+  </div>
 
-  <section class="group">
-    <h2>Emergency calls</h2>
-    <p class="row muted">
-      Tandem never places emergency calls from this computer. Dial them on the handset, which has
-      carrier location. An emergency call in progress is shown read-only.
+  <div class="card danger-card">
+    <span class="label">Emergency calls</span>
+    <p class="body muted">
+      Tandem never places emergency calls from this computer. Dial them on the handset, which can
+      share your location. An emergency call in progress is shown read-only.
     </p>
-  </section>
+  </div>
 
-  <section class="group">
-    <h2>Unpair</h2>
+  <div class="card">
+    <span class="label">Unpair</span>
     {#if confirmingUnpair}
-      <p class="row muted">
-        Unpairing deletes this computer's key and the mirrored call history. You will need to pair
-        again from the phone.
+      <p class="body muted">
+        This deletes this computer's key and the mirrored history. You will need to pair again from
+        the phone.
       </p>
-      <div class="row">
+      <div class="actions">
         <button type="button" class="danger">Unpair now</button>
-        <button type="button" onclick={() => (confirmingUnpair = false)}>Cancel</button>
+        <button type="button" class="ghost" onclick={() => (confirmingUnpair = false)}>
+          Cancel
+        </button>
       </div>
     {:else}
-      <button type="button" onclick={() => (confirmingUnpair = true)}>Unpair this computer</button>
+      <button type="button" class="ghost" onclick={() => (confirmingUnpair = true)}>
+        Unpair this computer
+      </button>
     {/if}
-  </section>
+  </div>
 </section>
 
 <style>
   .settings {
     display: flex;
     flex-direction: column;
-    gap: 1.25rem;
-    max-width: 30rem;
+    gap: 10px;
   }
 
-  h1 {
-    margin: 0;
-    font-size: 1.25rem;
+  header h1 {
+    margin: 0 0 2px;
+    font-family: var(--font-display);
+    font-size: 19px;
+    font-weight: 650;
+    letter-spacing: -0.015em;
   }
 
-  h2 {
-    margin: 0 0 0.375rem;
-    font-size: 0.9375rem;
+  .card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px;
+    border-radius: var(--radius);
+    background: var(--surface);
+    border: 1px solid var(--hairline);
   }
 
-  .group {
-    border-top: 1px solid var(--border, #e5e5ea);
-    padding-top: 0.75rem;
+  /* The emergency card is informational, so it is tinted rather than alarming. */
+  .danger-card {
+    border-color: var(--danger-a15);
   }
 
   .row {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .value {
     margin: 0;
-    font-size: 0.875rem;
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .body {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.55;
   }
 
   .muted {
-    display: block;
-    opacity: 0.75;
-    line-height: 1.5;
+    color: var(--text-2);
+  }
+
+  .actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 2px;
   }
 
   button {
-    min-height: 2.25rem;
-    padding: 0 0.75rem;
-    border: 1px solid var(--border, #d0d0d5);
-    border-radius: 0.5rem;
-    background: var(--surface, #fff);
-    cursor: pointer;
-    font: inherit;
+    min-height: 34px;
+    padding: 0 12px;
+    border-radius: var(--radius-s);
+    font-size: 12px;
+    font-weight: 650;
+    align-self: flex-start;
+    transition: background 0.16s ease, filter 0.16s ease;
+  }
+
+  .ghost {
+    background: var(--surface-hi);
+    border: 1px solid var(--hairline);
+  }
+
+  .ghost:hover {
+    border-color: var(--hairline-strong);
   }
 
   .danger {
-    border-color: #b3261e;
-    color: #b3261e;
+    background: var(--danger);
+    color: #fff;
+  }
+
+  .danger:hover {
+    filter: brightness(1.08);
   }
 </style>

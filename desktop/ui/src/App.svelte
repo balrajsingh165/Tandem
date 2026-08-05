@@ -16,6 +16,13 @@
 
   type Tab = 'dialer' | 'history' | 'pairing' | 'settings';
 
+  const tabs: Array<[Tab, string, string]> = [
+    ['dialer', 'Dialer', '⌨'],
+    ['history', 'Recents', '↺'],
+    ['pairing', 'Pair', '⇋'],
+    ['settings', 'Settings', '⚙'],
+  ];
+
   let tab = $state<Tab>('dialer');
   let startupError = $state<string | null>(null);
 
@@ -38,104 +45,154 @@
   const showingCall = $derived($primaryCall !== null);
 </script>
 
-<header>
-  <h1>Tandem</h1>
-  <StatusBadge status={$connection} />
-</header>
+<div class="shell">
+  <header>
+    <div class="brand">
+      <span class="mark" aria-hidden="true"></span>
+      <span class="name">Tandem</span>
+    </div>
+    <StatusBadge status={$connection} />
+  </header>
 
-{#if startupError}
-  <p class="banner error" role="alert">{startupError}</p>
-{/if}
-
-{#if $revocation}
-  <p class="banner error" role="alert">
-    This computer was unpaired from the phone: {$revocation}
-  </p>
-{/if}
-
-<nav>
-  {#each [['dialer', 'Dialer'], ['history', 'History'], ['pairing', 'Pairing'], ['settings', 'Settings']] as [id, label] (id)}
-    <button
-      type="button"
-      class:selected={tab === id && !showingCall}
-      aria-current={tab === id && !showingCall}
-      onclick={() => (tab = id as Tab)}
-    >
-      {label}
-    </button>
-  {/each}
-</nav>
-
-<main>
-  {#if showingCall}
-    <ActiveCallView />
-  {:else if tab === 'dialer'}
-    <DialerView />
-  {:else if tab === 'history'}
-    <HistoryView />
-  {:else if tab === 'pairing'}
-    <PairingView />
-  {:else}
-    <SettingsView />
+  {#if startupError}
+    <p class="banner error" role="alert">{startupError}</p>
   {/if}
-</main>
+
+  {#if $revocation}
+    <p class="banner error" role="alert">Unpaired from the phone: {$revocation}</p>
+  {/if}
+
+  <main class:calling={showingCall}>
+    {#if showingCall}
+      <ActiveCallView />
+    {:else if tab === 'dialer'}
+      <DialerView />
+    {:else if tab === 'history'}
+      <HistoryView />
+    {:else if tab === 'pairing'}
+      <PairingView />
+    {:else}
+      <SettingsView />
+    {/if}
+  </main>
+
+  {#if !showingCall}
+    <nav aria-label="Sections">
+      {#each tabs as [id, label, glyph] (id)}
+        <button
+          type="button"
+          class:selected={tab === id}
+          aria-current={tab === id ? 'page' : undefined}
+          onclick={() => (tab = id)}
+        >
+          <span class="glyph" aria-hidden="true">{glyph}</span>
+          <span class="cap">{label}</span>
+        </button>
+      {/each}
+    </nav>
+  {/if}
+</div>
 
 <style>
-  :global(body) {
-    margin: 0;
-    font-family: system-ui, sans-serif;
-    color: #1c1b1f;
-    background: #fbfbfd;
+  .shell {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
   }
 
   header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0.75rem 1rem;
-    border-bottom: 1px solid #e5e5ea;
+    gap: 10px;
+    padding: 14px 16px 10px;
+    flex: none;
   }
 
-  h1 {
-    margin: 0;
-    font-size: 1rem;
-    letter-spacing: 0.02em;
-  }
-
-  nav {
+  .brand {
     display: flex;
-    gap: 0.25rem;
-    padding: 0.5rem 1rem 0;
+    align-items: center;
+    gap: 8px;
   }
 
-  nav button {
-    border: 0;
-    border-bottom: 2px solid transparent;
-    background: none;
-    padding: 0.375rem 0.5rem;
-    cursor: pointer;
-    font: inherit;
-    font-size: 0.875rem;
-    opacity: 0.7;
+  /* A small solid mark anchors the header without needing an image asset. */
+  .mark {
+    width: 16px;
+    height: 16px;
+    border-radius: 5px;
+    background: var(--accent);
+    box-shadow: 0 0 12px var(--accent-a35);
   }
 
-  nav button.selected {
-    border-bottom-color: #1c1b1f;
-    opacity: 1;
+  .name {
+    font-family: var(--font-display);
+    font-size: 15px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
   }
 
   main {
-    padding: 1rem;
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 16px 16px;
+  }
+
+  main.calling {
+    padding-bottom: 20px;
+  }
+
+  nav {
+    flex: none;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 2px;
+    padding: 6px 8px 10px;
+    border-top: 1px solid var(--hairline);
+    background: var(--bg-void);
+  }
+
+  nav button {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 7px 2px;
+    border-radius: var(--radius-s);
+    color: var(--text-3);
+    transition: color 0.16s ease, background 0.16s ease;
+  }
+
+  nav button:hover {
+    color: var(--text-2);
+    background: var(--surface);
+  }
+
+  nav button.selected {
+    color: var(--accent);
+  }
+
+  nav .glyph {
+    font-size: 15px;
+    line-height: 1;
+  }
+
+  nav .cap {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
   }
 
   .banner {
-    margin: 0;
-    padding: 0.625rem 1rem;
-    font-size: 0.875rem;
+    flex: none;
+    margin: 0 16px 8px;
+    padding: 9px 11px;
+    border-radius: var(--radius-s);
+    font-size: 12px;
+    font-weight: 600;
   }
 
   .error {
-    background: #fce8e6;
-    color: #8c1d18;
+    background: var(--danger-a15);
+    color: var(--danger);
   }
 </style>

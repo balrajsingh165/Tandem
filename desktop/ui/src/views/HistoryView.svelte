@@ -39,34 +39,59 @@
 </script>
 
 <section class="history">
-  <h1>Recent calls</h1>
-  <p class="source">Mirrored from your phone. This view is read-only.</p>
+  <header>
+    <h1>Recents</h1>
+    <p class="label">Mirrored from your phone · read-only</p>
+  </header>
 
   {#if failure}
     <p class="failure" role="alert">{failure}</p>
   {/if}
 
-  {#if $history.length === 0 && !loading}
-    <p class="empty">No calls yet.</p>
+  {#if $history.length === 0}
+    <div class="empty">
+      <span class="glyph" aria-hidden="true">↺</span>
+      <p class="title">{loading ? 'Loading…' : 'No calls yet'}</p>
+      <p class="sub">
+        {#if !$isConnected}
+          Pair a phone to see its call history.
+        {:else}
+          Calls made or received on your phone appear here.
+        {/if}
+      </p>
+    </div>
   {/if}
 
   <ul>
     {#each $history as entry (entry.entryId)}
-      <li>
-        <div class="who">
+      <li class="rise">
+        <span class="avatar" aria-hidden="true">
+          {(entry.displayName || entry.number || '?').charAt(0).toUpperCase()}
+        </span>
+        <span class="who">
           <span class="name">{entry.displayName || formatNumber(entry.number)}</span>
-          <span class="when">{formatTimestamp(entry.startedAtMs)}</span>
-        </div>
-        <span class="duration">{formatDuration(entry.durationSeconds)}</span>
-        <button type="button" disabled={!$isConnected} onclick={() => ipc.dial(entry.number)}>
-          Call
+          <span class="when">
+            {formatTimestamp(entry.startedAtMs)}
+            {#if entry.durationSeconds > 0}
+              · <span class="numeric">{formatDuration(entry.durationSeconds)}</span>
+            {/if}
+          </span>
+        </span>
+        <button
+          type="button"
+          class="dial"
+          disabled={!$isConnected}
+          aria-label={`Call ${entry.displayName || entry.number}`}
+          onclick={() => ipc.dial(entry.number)}
+        >
+          📞
         </button>
       </li>
     {/each}
   </ul>
 
   {#if hasMore && $history.length > 0}
-    <button type="button" onclick={load} disabled={loading}>
+    <button type="button" class="more" onclick={load} disabled={loading}>
       {loading ? 'Loading…' : 'Load older'}
     </button>
   {/if}
@@ -76,34 +101,54 @@
   .history {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
-    max-width: 30rem;
+    gap: 10px;
   }
 
-  h1 {
+  header h1 {
     margin: 0;
-    font-size: 1.25rem;
+    font-family: var(--font-display);
+    font-size: 19px;
+    font-weight: 650;
+    letter-spacing: -0.015em;
   }
 
-  .source,
-  .empty {
-    margin: 0;
-    font-size: 0.8125rem;
-    opacity: 0.7;
+  header .label {
+    margin: 3px 0 0;
   }
 
   ul {
     list-style: none;
     margin: 0;
     padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
   }
 
   li {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    padding: 0.5rem 0;
-    border-bottom: 1px solid var(--border, #e5e5ea);
+    gap: 10px;
+    padding: 8px 9px;
+    border-radius: var(--radius-s);
+    transition: background 0.16s ease;
+  }
+
+  li:hover {
+    background: var(--surface);
+  }
+
+  .avatar {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--surface-hi);
+    color: var(--text-2);
+    font-size: 13px;
+    font-weight: 700;
   }
 
   .who {
@@ -114,38 +159,92 @@
   }
 
   .name {
+    font-size: 13px;
+    font-weight: 600;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .when {
-    font-size: 0.75rem;
-    opacity: 0.65;
+    font-size: 11px;
+    color: var(--text-3);
   }
 
-  .duration {
-    font-variant-numeric: tabular-nums;
-    font-size: 0.8125rem;
-    opacity: 0.75;
+  .dial {
+    flex: none;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--surface-hi);
+    border: 1px solid var(--hairline);
+    font-size: 13px;
+    opacity: 0;
+    transition: opacity 0.16s ease, transform 0.16s var(--ease-spring);
   }
 
-  button {
-    border: 1px solid var(--border, #d0d0d5);
-    border-radius: 0.375rem;
-    background: var(--surface, #fff);
-    padding: 0.25rem 0.625rem;
-    cursor: pointer;
-    font: inherit;
+  /* Revealing the action on hover keeps a long list calm. */
+  li:hover .dial,
+  .dial:focus-visible {
+    opacity: 1;
   }
 
-  button:disabled {
-    opacity: 0.5;
+  .dial:hover:not(:disabled) {
+    border-color: var(--accent-a35);
+    transform: scale(1.06);
+  }
+
+  .dial:disabled {
     cursor: not-allowed;
   }
 
+  .empty {
+    text-align: center;
+    padding: 44px 16px;
+    color: var(--text-3);
+  }
+
+  .empty .glyph {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    margin: 0 auto 10px;
+    border-radius: 50%;
+    background: var(--surface);
+    font-size: 18px;
+  }
+
+  .empty .title {
+    margin: 0 0 3px;
+    font-size: 14px;
+    font-weight: 650;
+    color: var(--text-2);
+  }
+
+  .empty .sub {
+    margin: 0;
+    font-size: 12px;
+  }
+
+  .more {
+    align-self: center;
+    padding: 7px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--hairline);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .more:hover:not(:disabled) {
+    background: var(--surface);
+  }
+
   .failure {
-    color: #b3261e;
-    font-size: 0.875rem;
+    margin: 0;
+    color: var(--danger);
+    font-size: 12px;
   }
 </style>

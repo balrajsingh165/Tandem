@@ -13,6 +13,8 @@
   let failure = $state<string | null>(null);
 
   const shortCode = $derived($pairingState?.shortCode ?? null);
+  const phase = $derived($pairingState?.state ?? null);
+  const accepted = $derived(phase === 'accepted');
 
   async function submit(): Promise<void> {
     if (!payload.trim()) return;
@@ -29,31 +31,41 @@
 </script>
 
 <section class="pairing">
-  <h1>Pair with your phone</h1>
+  <header>
+    <h1>Pair with your phone</h1>
+    <p class="label">One-time setup</p>
+  </header>
 
   <ol class="steps">
-    <li>Open Tandem Gateway on your phone and choose <strong>Pair a computer</strong>.</li>
-    <li>Scan the QR code shown there, or paste its contents below.</li>
-    <li>Confirm the pairing prompt on the phone.</li>
+    <li>Open <strong>Tandem</strong> on your phone.</li>
+    <li>Tap <strong>Pair a computer</strong>.</li>
+    <li>Paste the code it shows below, then confirm on the phone.</li>
   </ol>
 
-  <label>
-    <span>Pairing code contents</span>
-    <textarea bind:value={payload} rows="4" placeholder={'{"v":1,"host":…}'}></textarea>
+  <label class="field">
+    <span class="label">Pairing code</span>
+    <textarea
+      bind:value={payload}
+      rows="3"
+      spellcheck="false"
+      placeholder={'{"v":1,"host":"192.168.…"}'}
+    ></textarea>
   </label>
 
-  <button type="button" onclick={submit} disabled={submitting || !payload.trim()}>
+  <button type="button" class="primary" onclick={submit} disabled={submitting || !payload.trim()}>
     {submitting ? 'Pairing…' : 'Pair'}
   </button>
 
   {#if shortCode}
-    <div class="shortcode" role="status">
-      <p>Confirm this code matches the one on your phone:</p>
-      <p class="code">{shortCode}</p>
+    <div class="code rise" role="status">
+      <p class="label">Confirm this matches your phone</p>
+      <p class="digits numeric">{shortCode}</p>
       <p class="warn">If the codes differ, stop — do not confirm on the phone.</p>
     </div>
-  {:else if $pairingState}
-    <p class="progress" role="status">{$pairingState.state}</p>
+  {:else if accepted}
+    <p class="ok rise" role="status">Paired. Your phone is connected.</p>
+  {:else if phase}
+    <p class="progress" role="status">{phase}</p>
   {/if}
 
   {#if failure}
@@ -65,79 +77,123 @@
   .pairing {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
-    max-width: 26rem;
+    gap: 12px;
   }
 
-  h1 {
+  header h1 {
     margin: 0;
-    font-size: 1.25rem;
+    font-family: var(--font-display);
+    font-size: 19px;
+    font-weight: 650;
+    letter-spacing: -0.015em;
+  }
+
+  header .label {
+    margin: 3px 0 0;
   }
 
   .steps {
     margin: 0;
-    padding-left: 1.25rem;
-    font-size: 0.875rem;
-    line-height: 1.6;
+    padding-left: 18px;
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--text-2);
   }
 
-  label {
+  .steps strong {
+    color: var(--text);
+  }
+
+  .field {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
-    font-size: 0.875rem;
+    gap: 5px;
   }
 
   textarea {
-    font-family: ui-monospace, monospace;
-    font-size: 0.8125rem;
-    padding: 0.5rem;
-    border: 1px solid var(--border, #d0d0d5);
-    border-radius: 0.5rem;
+    width: 100%;
     resize: vertical;
+    padding: 9px 10px;
+    border-radius: var(--radius-s);
+    border: 1px solid var(--hairline);
+    background: var(--surface);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.5;
   }
 
-  button {
-    min-height: 2.5rem;
-    border: 1px solid var(--border, #d0d0d5);
-    border-radius: 0.5rem;
-    background: var(--surface, #fff);
-    cursor: pointer;
-    font: inherit;
+  textarea:focus {
+    outline: none;
+    border-color: var(--accent-a35);
   }
 
-  button:disabled {
-    opacity: 0.5;
+  .primary {
+    min-height: 42px;
+    border-radius: var(--radius);
+    background: var(--accent);
+    color: var(--accent-ink);
+    font-weight: 700;
+    transition: transform 0.16s var(--ease-spring), filter 0.16s ease;
+  }
+
+  .primary:hover:not(:disabled) {
+    filter: brightness(1.06);
+  }
+
+  .primary:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+
+  .primary:disabled {
+    opacity: 0.35;
     cursor: not-allowed;
   }
 
-  .shortcode {
-    padding: 0.75rem;
-    border: 1px solid var(--border, #d0d0d5);
-    border-radius: 0.5rem;
+  .code {
     text-align: center;
+    padding: 14px;
+    border-radius: var(--radius);
+    background: var(--surface);
+    border: 1px solid var(--accent-a35);
   }
 
-  .code {
-    margin: 0.25rem 0;
-    font-size: 2rem;
-    letter-spacing: 0.35em;
-    font-variant-numeric: tabular-nums;
+  .digits {
+    margin: 6px 0;
+    font-size: 32px;
+    font-weight: 600;
+    letter-spacing: 0.28em;
+    text-indent: 0.28em;
+    color: var(--accent);
   }
 
   .warn {
     margin: 0;
-    font-size: 0.8125rem;
-    color: #b3261e;
+    font-size: 11px;
+    color: var(--danger);
+    font-weight: 600;
+  }
+
+  .ok {
+    margin: 0;
+    padding: 10px 12px;
+    border-radius: var(--radius-s);
+    background: var(--accent-a20);
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 650;
+    text-align: center;
   }
 
   .progress {
-    font-size: 0.875rem;
-    opacity: 0.8;
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-2);
+    text-align: center;
   }
 
   .failure {
-    color: #b3261e;
-    font-size: 0.875rem;
+    margin: 0;
+    color: var(--danger);
+    font-size: 12px;
   }
 </style>

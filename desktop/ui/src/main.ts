@@ -5,6 +5,7 @@
 
 import { mount } from 'svelte';
 import App from './App.svelte';
+import './app.css';
 
 window.addEventListener('error', (event) => {
   console.error('tandem-ui: uncaught error', event.error ?? event.message);

@@ -13,6 +13,7 @@
 
   const { status }: Props = $props();
 
+  // Three tones only: settled, working, or off. More would be noise at 11px.
   const tone = $derived(
     status === 'live'
       ? 'ok'
@@ -20,10 +21,16 @@
         ? 'off'
         : 'pending',
   );
+
+  const busy = $derived(tone === 'pending');
 </script>
 
-<span class="badge {tone}" role="status" aria-label={`Connection: ${connectionLabel(status)}`}>
-  <span class="dot" aria-hidden="true"></span>
+<span
+  class="badge {tone}"
+  role="status"
+  aria-label={`Connection: ${connectionLabel(status)}`}
+>
+  <span class="dot" class:busy aria-hidden="true"></span>
   {connectionLabel(status)}
 </span>
 
@@ -31,29 +38,39 @@
   .badge {
     display: inline-flex;
     align-items: center;
-    gap: 0.375rem;
-    padding: 0.125rem 0.5rem;
+    gap: 6px;
+    padding: 4px 10px 4px 8px;
     border-radius: 999px;
-    font-size: 0.8125rem;
-    border: 1px solid var(--border, #d0d0d5);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    border: 1px solid var(--hairline);
+    background: var(--surface);
+    white-space: nowrap;
   }
 
   .dot {
-    width: 0.5rem;
-    height: 0.5rem;
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
     background: currentColor;
+    flex: none;
+  }
+
+  .dot.busy {
+    animation: halo 1.8s ease-out infinite;
   }
 
   .ok {
-    color: #1b6e3c;
+    color: var(--accent);
+    border-color: var(--accent-a35);
   }
 
   .pending {
-    color: #8a6100;
+    color: var(--warn);
   }
 
   .off {
-    color: #6b6b70;
+    color: var(--text-3);
   }
 </style>

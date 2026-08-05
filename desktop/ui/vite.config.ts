@@ -12,6 +12,11 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    watch: {
+      // Rust build output holds hundreds of thousands of files; watching it
+      // exhausts the file-watcher handles and kills the dev server.
+      ignored: ['**/src-tauri/target/**', '**/target/**'],
+    },
   },
   build: {
     target: 'es2022',
