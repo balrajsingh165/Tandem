@@ -9,6 +9,7 @@ package com.tandem.gateway.telecom
 import android.telecom.Call as TelecomCall
 import android.telecom.CallAudioState
 import android.telecom.InCallService
+import com.tandem.gateway.contacts.ContactNameResolver
 import com.tandem.gateway.dialer.OutgoingCallPlacer
 import com.tandem.gateway.domain.model.AudioRoute
 import com.tandem.gateway.domain.model.Call
@@ -25,6 +26,7 @@ import kotlinx.coroutines.flow.asStateFlow
 @Singleton
 class TelecomBridgeImpl @Inject constructor(
     private val outgoingCallPlacer: OutgoingCallPlacer,
+    private val contactNameResolver: ContactNameResolver,
 ) : TelecomBridge {
 
     private val tracked = ConcurrentHashMap<String, TelecomCall>()
@@ -184,7 +186,13 @@ class TelecomBridgeImpl @Inject constructor(
             state = CallStateMapper.mapState(call.state),
             direction = CallStateMapper.mapDirection(details.callDirection),
             remoteNumber = details.handle?.schemeSpecificPart.orEmpty(),
-            remoteDisplayName = details.callerDisplayName.orEmpty(),
+            // Telecom only carries carrier CNAP, which is empty on most networks;
+            // the saved contact is what the user actually recognises.
+            remoteDisplayName = details.callerDisplayName
+                ?.takeIf { it.isNotBlank() }
+                ?: contactNameResolver
+                    .nameFor(details.handle?.schemeSpecificPart.orEmpty())
+                    .orEmpty(),
             startedAtMs = details.connectTimeMillis,
             isConference = CallStateMapper.isConference(details.callProperties),
             canHold = CallStateMapper.canHold(details.callCapabilities),

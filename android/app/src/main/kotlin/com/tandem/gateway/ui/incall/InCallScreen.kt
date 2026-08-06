@@ -13,18 +13,31 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.CallEnd
+import androidx.compose.material.icons.filled.Dialpad
+import androidx.compose.material.icons.filled.MergeType
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.VolumeDown
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -37,6 +50,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -248,22 +262,26 @@ private fun IncomingActions(onAnswer: () -> Unit, onDecline: () -> Unit) {
             onClick = onDecline,
             modifier = Modifier
                 .weight(1f)
-                .size(height = 60.dp, width = 0.dp),
+                .height(60.dp),
             shape = CircleShape,
             colors = ButtonDefaults.buttonColors(
                 containerColor = MaterialTheme.colorScheme.errorContainer,
                 contentColor = MaterialTheme.colorScheme.onErrorContainer,
             ),
         ) {
+            Icon(Icons.Filled.CallEnd, contentDescription = null, Modifier.size(20.dp))
+            Spacer(Modifier.width(8.dp))
             Text(stringResource(R.string.call_decline), fontWeight = FontWeight.SemiBold)
         }
         Button(
             onClick = onAnswer,
             modifier = Modifier
                 .weight(1f)
-                .size(height = 60.dp, width = 0.dp),
+                .height(60.dp),
             shape = CircleShape,
         ) {
+            Icon(Icons.Filled.Call, contentDescription = null, Modifier.size(20.dp))
+            Spacer(Modifier.width(8.dp))
             Text(stringResource(R.string.call_answer), fontWeight = FontWeight.SemiBold)
         }
     }
@@ -291,6 +309,7 @@ private fun ActiveControls(
         ) {
             ControlKey(
                 label = stringResource(if (muted) R.string.call_unmute else R.string.call_mute),
+                icon = if (muted) Icons.Filled.MicOff else Icons.Filled.Mic,
                 active = muted,
                 enabled = enabled,
                 onClick = onMute,
@@ -298,6 +317,7 @@ private fun ActiveControls(
             )
             ControlKey(
                 label = stringResource(R.string.call_keypad),
+                icon = Icons.Filled.Dialpad,
                 active = keypadOpen,
                 enabled = enabled,
                 onClick = onKeypad,
@@ -305,6 +325,7 @@ private fun ActiveControls(
             )
             ControlKey(
                 label = stringResource(R.string.call_speaker),
+                icon = if (onSpeaker) Icons.Filled.VolumeUp else Icons.Filled.VolumeDown,
                 active = onSpeaker,
                 enabled = enabled,
                 onClick = onSpeakerToggle,
@@ -317,6 +338,7 @@ private fun ActiveControls(
         ) {
             ControlKey(
                 label = stringResource(if (holding) R.string.call_resume else R.string.call_hold),
+                icon = if (holding) Icons.Filled.PlayArrow else Icons.Filled.Pause,
                 active = holding,
                 enabled = canHold,
                 onClick = onHold,
@@ -325,6 +347,7 @@ private fun ActiveControls(
             if (canMerge) {
                 ControlKey(
                     label = stringResource(R.string.call_merge),
+                    icon = Icons.Filled.MergeType,
                     active = false,
                     enabled = true,
                     onClick = onMerge,
@@ -342,6 +365,7 @@ private fun ActiveControls(
 @Composable
 private fun ControlKey(
     label: String,
+    icon: ImageVector,
     active: Boolean,
     enabled: Boolean,
     onClick: () -> Unit,
@@ -366,21 +390,32 @@ private fun ControlKey(
         onClick = onClick,
         enabled = enabled,
     ) {
-        Box(
+        val tint = when {
+            !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+            active -> MaterialTheme.colorScheme.onPrimary
+            else -> MaterialTheme.colorScheme.onSurface
+        }
+
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 16.dp),
-            contentAlignment = Alignment.Center,
+                .padding(vertical = 14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
+            // The glyph carries the meaning; the word underneath keeps it
+            // unambiguous and keeps the control reachable by screen readers.
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = tint,
+                modifier = Modifier.size(22.dp),
+            )
             Text(
                 text = label,
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Medium,
-                color = when {
-                    !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                    active -> MaterialTheme.colorScheme.onPrimary
-                    else -> MaterialTheme.colorScheme.onSurface
-                },
+                color = tint,
             )
         }
     }
@@ -393,13 +428,15 @@ private fun EndButton(enabled: Boolean, onClick: () -> Unit) {
         enabled = enabled,
         modifier = Modifier
             .fillMaxWidth()
-            .size(height = 60.dp, width = 0.dp),
+            .height(60.dp),
         shape = CircleShape,
         colors = ButtonDefaults.buttonColors(
             containerColor = MaterialTheme.colorScheme.error,
             contentColor = MaterialTheme.colorScheme.onError,
         ),
     ) {
+        Icon(Icons.Filled.CallEnd, contentDescription = null, Modifier.size(20.dp))
+        Spacer(Modifier.width(8.dp))
         Text(
             text = stringResource(R.string.call_end),
             fontWeight = FontWeight.SemiBold,
