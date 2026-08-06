@@ -7,7 +7,7 @@
 
   import QRCode from 'qrcode';
   import { ipc } from '$lib/ipc';
-  import { pairingApproval, pairingState } from '$lib/state';
+  import { applyStatus, connection, pairingApproval, pairingState, phoneName } from '$lib/state';
 
   let canvas = $state<HTMLCanvasElement | null>(null);
   let offer = $state<string | null>(null);
@@ -16,8 +16,13 @@
   let manual = $state(false);
   let typed = $state('');
 
+  let disconnecting = $state(false);
+
   const phase = $derived($pairingState?.state ?? null);
-  const accepted = $derived(phase === 'accepted');
+  // A phone the daemon already knows about counts as paired, so the page shows
+  // the same thing after a restart as it does right after pairing.
+  const paired = $derived(phase === 'accepted' || $connection !== 'idle' || $phoneName !== '');
+  const accepted = $derived(paired);
   const progress = $derived(describe(phase));
 
   function describe(state: string | null): string | null {
@@ -30,6 +35,21 @@
     if (state.startsWith('approve:')) return null;
     if (state.startsWith('failed: ')) return null;
     return state;
+  }
+
+  async function disconnect(): Promise<void> {
+    disconnecting = true;
+    failure = null;
+    try {
+      await ipc.unpair();
+      pairingState.set(null);
+      offer = null;
+      applyStatus(await ipc.status());
+    } catch (error) {
+      failure = error instanceof Error ? error.message : 'Could not disconnect';
+    } finally {
+      disconnecting = false;
+    }
   }
 
   async function decide(accept: boolean): Promise<void> {
@@ -89,7 +109,19 @@
   </header>
 
   {#if accepted}
-    <p class="ok rise" role="status">Paired. Your phone is connected.</p>
+    <div class="paired rise">
+      <p class="ok" role="status">
+        Paired with <strong>{$phoneName || 'your phone'}</strong>.
+      </p>
+      <p class="note">
+        Disconnecting makes this computer forget the phone. The phone keeps its own
+        record until you remove this computer there too.
+      </p>
+      <button type="button" class="danger" onclick={disconnect} disabled={disconnecting}>
+        {disconnecting ? 'Disconnecting…' : 'Disconnect this phone'}
+      </button>
+    </div>
+    {#if failure}<p class="failure" role="alert">{failure}</p>{/if}
   {:else if offer}
     <div class="stage rise">
       <div class="frame">
@@ -307,6 +339,12 @@
     cursor: pointer;
   }
 
+  .paired {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
   .ok {
     margin: 0;
     padding: 10px 12px;
@@ -316,6 +354,32 @@
     font-size: 12px;
     font-weight: 650;
     text-align: center;
+  }
+
+  .note {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--text-3);
+  }
+
+  .danger {
+    min-height: 40px;
+    border-radius: var(--radius);
+    border: 1px solid var(--danger);
+    background: transparent;
+    color: var(--danger);
+    font-weight: 650;
+    font-size: 13px;
+    transition: background 0.16s ease;
+  }
+
+  .danger:hover:not(:disabled) {
+    background: var(--danger-a15);
+  }
+
+  .danger:disabled {
+    opacity: 0.4;
   }
 
   .progress {

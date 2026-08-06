@@ -9,6 +9,8 @@
   import DialPad from '../components/DialPad.svelte';
   import { ipc } from '$lib/ipc';
   import {
+    activeBtDeviceAddress,
+    audioDevices,
     audioRoute,
     calls,
     desktopAudioAvailable,
@@ -16,6 +18,7 @@
     microphoneMuted,
     primaryCall,
   } from '$lib/state';
+  import type { AudioDeviceView } from '$lib/ipc';
   import { audioRouteLabel, callStateLabel, formatDuration, formatNumber } from '$lib/format';
   import { nameFor } from '$lib/contacts';
 
@@ -41,8 +44,29 @@
       : null,
   );
 
-  const onDesktop = $derived($audioRoute === 'bluetooth');
   const ringing = $derived($primaryCall?.state === 'ringing');
+
+  /** A Bluetooth target is only the live one if its address matches too. */
+  function isActive(device: AudioDeviceView): boolean {
+    if (device.route !== $audioRoute) return false;
+    if (device.route !== 'bluetooth') return true;
+    return device.btDeviceAddress === $activeBtDeviceAddress;
+  }
+
+  const activeDeviceName = $derived(
+    $audioDevices.find(isActive)?.name ?? audioRouteLabel($audioRoute),
+  );
+
+  const GLYPHS: Record<string, string> = {
+    speaker: 'SPK',
+    wiredHeadset: 'HS',
+    bluetooth: 'BT',
+    earpiece: 'PH',
+  };
+
+  function deviceGlyph(device: AudioDeviceView): string {
+    return GLYPHS[device.route] ?? 'PH';
+  }
 
   function otherCallId(currentId: string): string {
     return $calls.find((c) => c.callId !== currentId && c.state !== 'disconnected')?.callId ?? '';
@@ -92,20 +116,37 @@
       <div class="audio">
         <div class="row">
           <span class="label">Audio</span>
-          <span class="route">{audioRouteLabel($audioRoute)}</span>
+          <span class="route">{activeDeviceName}</span>
         </div>
-        {#if $desktopAudioAvailable && !call.isEmergency}
-          <button
-            type="button"
-            class="switch"
-            onclick={() => ipc.audioRoute(onDesktop ? 'earpiece' : 'bluetooth')}
-          >
-            {onDesktop ? 'Move audio to phone' : 'Move audio to this computer'}
-          </button>
-        {:else if !$desktopAudioAvailable}
+
+        {#if call.isEmergency}
+          <p class="hint">An emergency call stays on the handset and cannot be re-routed.</p>
+        {:else if $audioDevices.length > 0}
+          <div class="devices" role="group" aria-label="Where to play this call">
+            {#each $audioDevices as device (device.route + device.btDeviceAddress)}
+              <button
+                type="button"
+                class="device"
+                class:selected={isActive(device)}
+                aria-pressed={isActive(device)}
+                onclick={() => ipc.audioRoute(device.route, device.btDeviceAddress)}
+              >
+                <span class="glyph" aria-hidden="true">{deviceGlyph(device)}</span>
+                <span class="name">{device.name}</span>
+              </button>
+            {/each}
+          </div>
+        {:else}
           <p class="hint">
-            This build has no desktop audio path — talk on the handset or a device paired to your
-            phone.
+            Waiting for the phone to report where this call can play. Pair a headset to the phone to
+            add it here.
+          </p>
+        {/if}
+
+        {#if !$desktopAudioAvailable}
+          <p class="hint">
+            This computer is not yet an audio target — that needs the Bluetooth hands-free backend.
+            Anything paired to your phone appears above.
           </p>
         {/if}
       </div>
@@ -241,15 +282,42 @@
     font-weight: 600;
   }
 
-  .switch {
-    text-align: left;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--accent);
+  .devices {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
   }
 
-  .switch:hover {
-    text-decoration: underline;
+  .device {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 10px;
+    border-radius: var(--radius-s);
+    border: 1px solid var(--hairline);
+    background: var(--surface);
+    color: var(--text-2);
+    font-size: 12px;
+    font-weight: 600;
+    transition: border-color 0.16s ease, color 0.16s ease, background 0.16s ease;
+  }
+
+  .device:hover {
+    color: var(--text);
+    border-color: var(--accent-a35);
+  }
+
+  .device.selected {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: var(--accent-a20);
+  }
+
+  .device .glyph {
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.04em;
+    opacity: 0.75;
   }
 
   .hint {

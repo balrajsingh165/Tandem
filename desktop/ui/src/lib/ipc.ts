@@ -49,6 +49,12 @@ export interface HistoryEntry {
   durationSeconds: number;
 }
 
+export interface AudioDeviceView {
+  route: AudioRoute;
+  btDeviceAddress: string;
+  name: string;
+}
+
 export interface OfferResult {
   payload: string;
   desktopName: string;
@@ -61,12 +67,20 @@ export interface StatusResult {
   audioRoute: AudioRoute;
   microphoneMuted: boolean;
   desktopAudioAvailable: boolean;
+  audioDevices: AudioDeviceView[];
+  activeBtDeviceAddress: string;
 }
 
 export type IpcEvent =
   | { type: 'connectionChanged'; connection: ConnectionStatus }
   | { type: 'callsChanged'; calls: CallView[] }
   | { type: 'audioRouteChanged'; route: AudioRoute; btDeviceAddress: string }
+  | {
+      type: 'audioDevicesChanged';
+      devices: AudioDeviceView[];
+      activeRoute: AudioRoute;
+      activeBtDeviceAddress: string;
+    }
   | { type: 'historyChanged'; logVersion: number }
   | { type: 'emergencyBlocked'; number: string; guidance: string }
   | { type: 'audioPipelineChanged'; scoActive: boolean; latencyMs: number | null }
@@ -122,6 +136,7 @@ export const ipc = {
   pairing: (qrPayload: string) => call<void>('pairing', { qrPayload }),
   pairingOffer: () => call<OfferResult>('pairingOffer'),
   pairingConfirm: (accept: boolean) => call<void>('pairingConfirm', { accept }),
+  unpair: () => call<void>('unpair'),
 
   onEvent: (handler: (event: IpcEvent) => void) =>
     listen<IpcEvent>('tandem://event', (message) => handler(message.payload)),

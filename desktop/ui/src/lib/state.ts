@@ -6,6 +6,7 @@
 
 import { derived, writable, type Readable } from 'svelte/store';
 import type {
+  AudioDeviceView,
   AudioRoute,
   CallView,
   ConnectionStatus,
@@ -18,6 +19,10 @@ export const connection = writable<ConnectionStatus>('idle');
 export const phoneName = writable<string>('');
 export const calls = writable<CallView[]>([]);
 export const audioRoute = writable<AudioRoute>('earpiece');
+
+/** Everywhere the live call can be played, as the phone reports it. */
+export const audioDevices = writable<AudioDeviceView[]>([]);
+export const activeBtDeviceAddress = writable<string>('');
 export const microphoneMuted = writable<boolean>(false);
 export const desktopAudioAvailable = writable<boolean>(false);
 export const history = writable<HistoryEntry[]>([]);
@@ -57,6 +62,8 @@ export function applyStatus(status: StatusResult): void {
   phoneName.set(status.phoneName);
   calls.set(status.calls);
   audioRoute.set(status.audioRoute);
+  audioDevices.set(status.audioDevices);
+  activeBtDeviceAddress.set(status.activeBtDeviceAddress);
   microphoneMuted.set(status.microphoneMuted);
   desktopAudioAvailable.set(status.desktopAudioAvailable);
 }
@@ -71,6 +78,12 @@ export function applyEvent(event: IpcEvent): void {
       break;
     case 'audioRouteChanged':
       audioRoute.set(event.route);
+      activeBtDeviceAddress.set(event.btDeviceAddress);
+      break;
+    case 'audioDevicesChanged':
+      audioDevices.set(event.devices);
+      audioRoute.set(event.activeRoute);
+      activeBtDeviceAddress.set(event.activeBtDeviceAddress);
       break;
     case 'historyChanged':
       break;
