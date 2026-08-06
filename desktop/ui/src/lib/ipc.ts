@@ -49,6 +49,14 @@ export interface HistoryEntry {
   durationSeconds: number;
 }
 
+export interface ContactView {
+  contactId: string;
+  displayName: string;
+  number: string;
+  label: string;
+  starred: boolean;
+}
+
 export interface AudioDeviceView {
   route: AudioRoute;
   btDeviceAddress: string;
@@ -91,6 +99,7 @@ export type IpcEvent =
       activeBtDeviceAddress: string;
     }
   | { type: 'historyChanged'; logVersion: number }
+  | { type: 'contactsChanged'; count: number }
   | { type: 'phonesChanged'; phones: PhoneSummary[]; selectedPhoneId: string }
   | { type: 'emergencyBlocked'; number: string; guidance: string }
   | { type: 'audioPipelineChanged'; scoActive: boolean; latencyMs: number | null }
@@ -143,6 +152,7 @@ export const ipc = {
     call<void>('audioRoute', { route, btDeviceAddress }),
   history: (sinceMs: number, limit: number) =>
     call<{ entries: HistoryEntry[]; hasMore: boolean }>('history', { sinceMs, limit }),
+  contacts: () => call<{ entries: ContactView[] }>('contacts'),
   pairing: (qrPayload: string) => call<void>('pairing', { qrPayload }),
   pairingOffer: () => call<OfferResult>('pairingOffer'),
   pairingConfirm: (accept: boolean) => call<void>('pairingConfirm', { accept }),

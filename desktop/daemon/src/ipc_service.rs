@@ -595,6 +595,22 @@ impl IpcService for DaemonIpcService {
             }
 
             IpcRequest::History { since_ms, limit } => return Ok(self.history(since_ms, limit)),
+            IpcRequest::Contacts => {
+                let guard = self.app.lock().expect("app mutex poisoned");
+                let entries = guard
+                    .store_ref()
+                    .all_contacts()
+                    .into_iter()
+                    .map(|row| tandem_ipc::api::ContactView {
+                        contact_id: row.contact_id.clone(),
+                        display_name: row.display_name.clone(),
+                        number: row.number.clone(),
+                        label: row.label.clone(),
+                        starred: row.starred,
+                    })
+                    .collect();
+                return Ok(IpcResponse::Contacts { entries });
+            }
             IpcRequest::Settings => return Err(IpcError::Internal),
         };
 

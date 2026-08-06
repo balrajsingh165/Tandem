@@ -185,6 +185,13 @@ pub fn to_payload(request: OutboundRequest) -> Payload {
             max_entries,
             before_ms,
         }),
+        OutboundRequest::SyncContacts {
+            offset,
+            max_entries,
+        } => Payload::ContactsSyncRequest(p::ContactsSyncRequest {
+            offset,
+            max_entries,
+        }),
         OutboundRequest::Unpair => Payload::UnpairRequest(p::UnpairRequest {
             reason: "removed on the computer".into(),
         }),
@@ -422,6 +429,34 @@ pub async fn run_one_session(
 
                 // Paging happens here rather than inside apply_payload, because
                 // only this task may write to the socket.
+                // The phone nudges rather than pushing rows; a pull is what makes
+                // the change visible.
+                if let Payload::ContactsChangedEvent(_) = &payload {
+                    client
+                        .send_payload(to_payload(OutboundRequest::SyncContacts {
+                            offset: 0,
+                            max_entries: CONTACTS_PAGE_SIZE,
+                        }))
+                        .await?;
+                }
+
+                if let Payload::ContactsSyncResponse(response) = &payload {
+                    if response.has_more {
+                        let held = app
+                            .lock()
+                            .expect("app mutex poisoned")
+                            .store_ref()
+                            .contacts(&phone_id)
+                            .len();
+                        client
+                            .send_payload(to_payload(OutboundRequest::SyncContacts {
+                                offset: (held + response.entries.len()) as u32,
+                                max_entries: CONTACTS_PAGE_SIZE,
+                            }))
+                            .await?;
+                    }
+                }
+
                 if let Payload::CallLogSyncResponse(response) = &payload {
                     if let Some(before_ms) = next_page_bound(app, &phone_id, response) {
                         client
@@ -505,6 +540,9 @@ fn forget_phone(
 /// How many call-log rows to pull per request; the phone caps at 200.
 pub const SYNC_PAGE_SIZE: u32 = 200;
 
+/// How many contact rows to pull per request; the phone caps at 500.
+pub const CONTACTS_PAGE_SIZE: u32 = 500;
+
 /// Applies one inbound payload to the mirror and tells the UI what changed.
 fn apply_payload(
     payload: Payload,
@@ -537,6 +575,30 @@ fn apply_payload(
             devices,
             active_route: ipc_route(event.active_route),
             active_bt_device_address: event.active_bt_device_address.clone(),
+        });
+        return;
+    }
+
+    // Contacts are a directory projection, not call state.
+    if let Payload::ContactsSyncResponse(response) = payload {
+        let offset = {
+            let guard = app.lock().expect("app mutex poisoned");
+            guard.store_ref().contacts(phone_id).len() as u32
+        };
+        let rows: Vec<tandem_core::model::ContactRow> =
+            response.entries.into_iter().map(contact_row).collect();
+        let count = {
+            let mut guard = app.lock().expect("app mutex poisoned");
+            // The first page of a fresh sync arrives with nothing held yet, which
+            // is what tells the store to replace rather than append.
+            guard
+                .store()
+                .merge_contacts(phone_id, offset, rows, response.directory_version);
+            let _ = guard.store().save(state_path);
+            guard.store_ref().contacts(phone_id).len()
+        };
+        events.publish(IpcEvent::ContactsChanged {
+            count: count as u32,
         });
         return;
     }
@@ -587,6 +649,16 @@ fn ipc_route(value: i32) -> tandem_ipc::api::AudioRoute {
         Ok(P::WiredHeadset) => tandem_ipc::api::AudioRoute::WiredHeadset,
         Ok(P::Bluetooth) => tandem_ipc::api::AudioRoute::Bluetooth,
         _ => tandem_ipc::api::AudioRoute::Earpiece,
+    }
+}
+
+fn contact_row(entry: tandem_proto::ContactEntry) -> tandem_core::model::ContactRow {
+    tandem_core::model::ContactRow {
+        contact_id: entry.contact_id,
+        display_name: entry.display_name,
+        number: entry.number,
+        label: entry.label,
+        starred: entry.starred,
     }
 }
 

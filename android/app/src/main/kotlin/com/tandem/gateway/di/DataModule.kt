@@ -12,11 +12,13 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.room.Room
 import com.tandem.gateway.calllog.CallLogRepositoryImpl
+import com.tandem.gateway.contacts.ContactRepositoryImpl
 import com.tandem.gateway.data.PairedDeviceRepositoryImpl
 import com.tandem.gateway.data.SettingsRepositoryImpl
 import com.tandem.gateway.data.db.PairedDesktopDao
 import com.tandem.gateway.data.db.TandemDatabase
 import com.tandem.gateway.domain.port.CallLogRepository
+import com.tandem.gateway.domain.port.ContactRepository
 import com.tandem.gateway.domain.port.PairedDeviceRepository
 import com.tandem.gateway.domain.port.SettingsRepository
 import dagger.Binds
@@ -58,6 +60,10 @@ abstract class DataModule {
     @Binds
     @Singleton
     abstract fun bindCallLogRepository(impl: CallLogRepositoryImpl): CallLogRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindContactRepository(impl: ContactRepositoryImpl): ContactRepository
 
     @Binds
     @Singleton

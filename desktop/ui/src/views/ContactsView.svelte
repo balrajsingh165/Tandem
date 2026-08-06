@@ -6,14 +6,32 @@
    */
 
   import { ipc } from '$lib/ipc';
-  import { history, isConnected } from '$lib/state';
+  import { contacts, history, isConnected } from '$lib/state';
   import { contactsFromHistory, normalize, type Contact } from '$lib/contacts';
   import { formatNumber } from '$lib/format';
 
   let query = $state('');
   let failure = $state<string | null>(null);
 
-  const all = $derived(contactsFromHistory($history));
+  // The phone's address book is authoritative. Call history fills in anyone not
+  // saved as a contact, so a number you have spoken to is still reachable here.
+  const all = $derived.by(() => {
+    const synced: Contact[] = $contacts.map((entry) => ({
+      name: entry.displayName || entry.number,
+      number: entry.number,
+      label: entry.label,
+      // A saved contact you have never called has no last-called time; 0 sorts it
+      // after anyone you have actually spoken to.
+      lastCalledMs: 0,
+    }));
+
+    const seen = new Set(synced.map((c) => normalize(c.number)));
+    const fromHistory = contactsFromHistory($history).filter(
+      (c) => !seen.has(normalize(c.number)),
+    );
+
+    return [...synced, ...fromHistory];
+  });
 
   // Named people first: a bare number is a weaker match for a human scanning.
   const matches = $derived.by(() => {
@@ -48,7 +66,11 @@
 <section class="contacts">
   <header>
     <h1>Contacts</h1>
-    <p class="label">{all.length} from your call history</p>
+    <p class="label">
+      {$contacts.length > 0
+        ? `${all.length} contacts · ${$contacts.length} from your phone`
+        : `${all.length} from your call history`}
+    </p>
   </header>
 
   <input
@@ -78,7 +100,9 @@
             <span class="avatar" aria-hidden="true">{contact.name.charAt(0).toUpperCase()}</span>
             <span class="meta">
               <span class="name">{contact.name}</span>
-              <span class="num numeric">{formatNumber(contact.number)}</span>
+              <span class="num numeric">
+                {formatNumber(contact.number)}{contact.label ? ` · ${contact.label}` : ''}
+              </span>
             </span>
             <span class="go" aria-hidden="true">Call</span>
           </button>

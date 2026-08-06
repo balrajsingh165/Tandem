@@ -7,6 +7,7 @@
 import { derived, writable, type Readable } from 'svelte/store';
 import type {
   AudioDeviceView,
+  ContactView,
   PhoneSummary,
   AudioRoute,
   CallView,
@@ -31,6 +32,9 @@ export const activeBtDeviceAddress = writable<string>('');
 export const microphoneMuted = writable<boolean>(false);
 export const desktopAudioAvailable = writable<boolean>(false);
 export const history = writable<HistoryEntry[]>([]);
+
+/** The phones' address books, as synced. Empty until a phone reports them. */
+export const contacts = writable<ContactView[]>([]);
 export const pairingState = writable<{ state: string; shortCode: string | null } | null>(null);
 
 /** Non-null while a phone that scanned this desktop's code awaits a verdict. */
@@ -73,6 +77,14 @@ export async function loadHistory(
   history.set(page.entries);
 }
 
+/** Fills the shared contact directory the dialer and Contacts view read. */
+export async function loadContacts(
+  fetch: () => Promise<{ entries: ContactView[] }>,
+): Promise<void> {
+  const page = await fetch();
+  contacts.set(page.entries);
+}
+
 export function applyStatus(status: StatusResult): void {
   connection.set(status.connection);
   phones.set(status.phones);
@@ -104,6 +116,8 @@ export function applyEvent(event: IpcEvent): void {
       activeBtDeviceAddress.set(event.activeBtDeviceAddress);
       break;
     case 'historyChanged':
+      break;
+    case 'contactsChanged':
       break;
     case 'phonesChanged':
       phones.set(event.phones);

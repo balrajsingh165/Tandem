@@ -1,0 +1,44 @@
+// Contact directory sync (phone -> desktop) for TLP v1. The phone owns the
+// address book; the desktop keeps a searchable projection so a user can dial by
+// name without the phone in hand. Read-only: Tandem never writes contacts.
+
+syntax = "proto3";
+
+package tandem.v1;
+
+import "tandem/v1/common.proto";
+
+option java_package = "com.tandem.gateway.proto.v1";
+option java_multiple_files = true;
+
+// One dialable number belonging to one contact. A contact with three numbers
+// arrives as three entries sharing a contact_id, so the desktop can group them
+// without a second round trip.
+message ContactEntry {
+  string contact_id = 1;            // Stable per contact within this phone.
+  string display_name = 2;
+  string number = 3;
+  string label = 4;                 // "Mobile", "Work"…; may be empty.
+  bool starred = 5;                 // Favourite on the phone.
+}
+
+// Desktop -> phone. Paged by offset over a name-ordered listing, which is stable
+// enough for a walk and avoids leaking provider row ids.
+message ContactsSyncRequest {
+  uint32 offset = 1;
+  uint32 max_entries = 2;           // Page size; the phone caps it.
+}
+
+message ContactsSyncResponse {
+  Status status = 1;
+  repeated ContactEntry entries = 2;
+  bool has_more = 3;
+  // Bumped by the phone whenever the address book changes, so a desktop can tell
+  // a stale projection from a current one.
+  uint64 directory_version = 4;
+}
+
+// Nudge: the phone's address book changed; desktops should re-sync.
+message ContactsChangedEvent {
+  uint64 directory_version = 1;
+}

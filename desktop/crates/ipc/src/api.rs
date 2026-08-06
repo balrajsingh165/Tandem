@@ -113,6 +113,8 @@ pub enum IpcRequest {
         since_ms: i64,
         limit: u32,
     },
+    /// The phones' address books, merged and name-ordered.
+    Contacts,
     Pairing {
         qr_payload: String,
     },
@@ -154,6 +156,9 @@ pub enum IpcResponse {
         entries: Vec<HistoryEntry>,
         has_more: bool,
     },
+    Contacts {
+        entries: Vec<ContactView>,
+    },
     Status(StatusResult),
     Settings(SettingsResult),
     Pairing(PairingResult),
@@ -166,6 +171,17 @@ pub enum IpcResponse {
 pub struct OfferResult {
     pub payload: String,
     pub desktop_name: String,
+}
+
+/// One dialable number from a phone's address book.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContactView {
+    pub contact_id: String,
+    pub display_name: String,
+    pub number: String,
+    pub label: String,
+    pub starred: bool,
 }
 
 /// One place the call's audio can go. `btDeviceAddress` is empty for the phone's
@@ -252,6 +268,10 @@ pub enum IpcEvent {
     },
     HistoryChanged {
         log_version: u64,
+    },
+    /// The synced address book changed size, so the UI should re-read it.
+    ContactsChanged {
+        count: u32,
     },
     /// A phone was paired, removed, or changed connection state.
     PhonesChanged {

@@ -18,6 +18,7 @@
     applyEvent,
     applyStatus,
     connection,
+    loadContacts,
     loadHistory,
     primaryCall,
     revocation,
@@ -43,6 +44,7 @@
       try {
         applyStatus(await ipc.status());
         void loadHistory(ipc.history).catch(() => {});
+        void loadContacts(ipc.contacts).catch(() => {});
 
         unlisten = await ipc.onEvent((event) => {
           applyEvent(event);
@@ -50,6 +52,9 @@
           // phone says the log moved.
           if (event.type === 'historyChanged') {
             void loadHistory(ipc.history).catch(() => {});
+          }
+          if (event.type === 'contactsChanged') {
+            void loadContacts(ipc.contacts).catch(() => {});
           }
         });
       } catch (error) {

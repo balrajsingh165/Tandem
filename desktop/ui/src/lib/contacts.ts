@@ -22,6 +22,8 @@ function matchKey(number: string): string {
 }
 
 export interface Contact {
+  /** "Mobile", "Work"… when the phone supplied one. */
+  label?: string;
   name: string;
   number: string;
   lastCalledMs: number;

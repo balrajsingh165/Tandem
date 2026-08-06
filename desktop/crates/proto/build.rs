@@ -8,6 +8,7 @@ const PROTO_FILES: &[&str] = &[
     "tandem/v1/common.proto",
     "tandem/v1/call.proto",
     "tandem/v1/calllog.proto",
+    "tandem/v1/contacts.proto",
     "tandem/v1/pairing.proto",
     "tandem/v1/transport.proto",
 ];

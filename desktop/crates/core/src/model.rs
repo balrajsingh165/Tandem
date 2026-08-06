@@ -68,6 +68,17 @@ pub struct CallLogRow {
     pub sim_slot: i32,
 }
 
+/// One dialable number from the phone's address book. Several rows can share a
+/// contact_id when a person has more than one number.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContactRow {
+    pub contact_id: String,
+    pub display_name: String,
+    pub number: String,
+    pub label: String,
+    pub starred: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PairedPhone {
     pub device_id: String,

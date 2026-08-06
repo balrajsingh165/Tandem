@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
-use tandem_core::model::{CallLogRow, PairedPhone};
+use tandem_core::model::{CallLogRow, ContactRow, PairedPhone};
 
 /// Schema version; a mismatch triggers migration rather than silent misreads.
 pub const SCHEMA_VERSION: u32 = 2;
@@ -34,6 +34,10 @@ pub struct PhoneLog {
     rows: Vec<CallLogRow>,
     cursor: SyncCursor,
     version: u64,
+    /// The phone's address book, replaced wholesale on each sync: a partial merge
+    /// would keep contacts the user has since deleted.
+    contacts: Vec<ContactRow>,
+    directory_version: u64,
 }
 
 /// In-memory view of the persisted state, kept behind this type so the storage
@@ -129,6 +133,51 @@ impl Store {
         phone_log_version != self.last_call_log_version(device_id)
     }
 
+    pub fn contacts(&self, device_id: &str) -> &[ContactRow] {
+        self.logs
+            .get(device_id)
+            .map(|log| log.contacts.as_slice())
+            .unwrap_or_default()
+    }
+
+    /// Every phone's contacts, name-ordered, for one combined directory.
+    pub fn all_contacts(&self) -> Vec<&ContactRow> {
+        let mut merged: Vec<&ContactRow> =
+            self.logs.values().flat_map(|log| log.contacts.iter()).collect();
+        merged.sort_by(|a, b| {
+            a.display_name
+                .to_lowercase()
+                .cmp(&b.display_name.to_lowercase())
+                .then_with(|| a.number.cmp(&b.number))
+        });
+        merged.dedup_by(|a, b| a.number == b.number && a.display_name == b.display_name);
+        merged
+    }
+
+    pub fn directory_version(&self, device_id: &str) -> u64 {
+        self.logs
+            .get(device_id)
+            .map(|log| log.directory_version)
+            .unwrap_or(0)
+    }
+
+    /// Appends a synced page. Offset 0 starts a fresh directory, which is how a
+    /// deleted contact stops being offered.
+    pub fn merge_contacts(
+        &mut self,
+        device_id: &str,
+        offset: u32,
+        page: Vec<ContactRow>,
+        directory_version: u64,
+    ) {
+        let log = self.logs.entry(device_id.to_string()).or_default();
+        if offset == 0 {
+            log.contacts.clear();
+        }
+        log.contacts.extend(page);
+        log.directory_version = directory_version;
+    }
+
     pub fn clear_call_log(&mut self, device_id: &str) {
         if let Some(log) = self.logs.get_mut(device_id) {
             log.rows.clear();
@@ -165,6 +214,12 @@ impl Store {
             store.add_phone(phone);
             store.set_call_log_version(&id, entry.last_call_log_version);
             store.merge_call_log(&id, entry.call_log.into_iter().map(Into::into).collect());
+            store.merge_contacts(
+                &id,
+                0,
+                entry.contacts.into_iter().map(Into::into).collect(),
+                entry.directory_version,
+            );
         }
 
         store
@@ -191,6 +246,13 @@ impl Store {
                         .map(Into::into)
                         .collect(),
                     last_call_log_version: self.last_call_log_version(&phone.device_id),
+                    contacts: self
+                        .contacts(&phone.device_id)
+                        .iter()
+                        .cloned()
+                        .map(Into::into)
+                        .collect(),
+                    directory_version: self.directory_version(&phone.device_id),
                 })
                 .collect(),
         };
@@ -232,6 +294,45 @@ struct PersistedPairing {
     call_log: Vec<PersistedCallLogRow>,
     #[serde(default)]
     last_call_log_version: u64,
+    #[serde(default)]
+    contacts: Vec<PersistedContact>,
+    #[serde(default)]
+    directory_version: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersistedContact {
+    contact_id: String,
+    display_name: String,
+    number: String,
+    #[serde(default)]
+    label: String,
+    #[serde(default)]
+    starred: bool,
+}
+
+impl From<ContactRow> for PersistedContact {
+    fn from(row: ContactRow) -> Self {
+        Self {
+            contact_id: row.contact_id,
+            display_name: row.display_name,
+            number: row.number,
+            label: row.label,
+            starred: row.starred,
+        }
+    }
+}
+
+impl From<PersistedContact> for ContactRow {
+    fn from(row: PersistedContact) -> Self {
+        Self {
+            contact_id: row.contact_id,
+            display_name: row.display_name,
+            number: row.number,
+            label: row.label,
+            starred: row.starred,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -398,6 +499,16 @@ mod tests {
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
+    fn contact(id: &str, name: &str, number: &str) -> ContactRow {
+        ContactRow {
+            contact_id: id.into(),
+            display_name: name.into(),
+            number: number.into(),
+            label: "Mobile".into(),
+            starred: false,
+        }
+    }
+
     fn phone(id: &str) -> PairedPhone {
         PairedPhone {
             device_id: id.into(),
@@ -492,6 +603,65 @@ mod tests {
 
         assert_eq!(store.phones().len(), 1);
         assert_eq!(store.phone("p1").unwrap().name, "Renamed");
+    }
+
+    /// Offset 0 means a fresh walk, so the old directory must go: otherwise a
+    /// contact deleted on the phone would stay dialable on the desktop forever.
+    #[test]
+    fn a_fresh_contact_sync_replaces_the_directory() {
+        let mut store = Store::default();
+        store.add_phone(phone("p1"));
+
+        store.merge_contacts("p1", 0, vec![contact("1", "Alex", "+15550001")], 7);
+        store.merge_contacts("p1", 1, vec![contact("2", "Bo", "+15550002")], 7);
+        assert_eq!(store.contacts("p1").len(), 2);
+        assert_eq!(store.directory_version("p1"), 7);
+
+        // Alex was deleted on the phone; the next full sync must not keep them.
+        store.merge_contacts("p1", 0, vec![contact("2", "Bo", "+15550002")], 8);
+        assert_eq!(store.contacts("p1").len(), 1);
+        assert_eq!(store.contacts("p1")[0].display_name, "Bo");
+        assert_eq!(store.directory_version("p1"), 8);
+    }
+
+    /// Two phones sharing a contact must not show them twice in one directory.
+    #[test]
+    fn the_combined_directory_is_name_ordered_and_deduplicated() {
+        let mut store = Store::default();
+        store.add_phone(phone("p1"));
+        store.add_phone(phone("p2"));
+        store.merge_contacts("p1", 0, vec![contact("1", "Zoe", "+15550009")], 1);
+        store.merge_contacts(
+            "p2",
+            0,
+            vec![
+                contact("9", "Alex", "+15550001"),
+                contact("1", "Zoe", "+15550009"),
+            ],
+            1,
+        );
+
+        let merged = store.all_contacts();
+        assert_eq!(merged.len(), 2, "the shared number must appear once");
+        assert_eq!(merged[0].display_name, "Alex");
+        assert_eq!(merged[1].display_name, "Zoe");
+    }
+
+    /// Contacts are part of the cache, so they must survive a restart.
+    #[test]
+    fn contacts_survive_a_restart() {
+        let path = temp_path("contacts");
+        let mut store = Store::default();
+        store.add_phone(phone("p1"));
+        store.merge_contacts("p1", 0, vec![contact("1", "Alex", "+15550001")], 4);
+        store.save(&path).unwrap();
+
+        let reopened = Store::load(&path);
+        assert_eq!(reopened.contacts("p1").len(), 1);
+        assert_eq!(reopened.contacts("p1")[0].number, "+15550001");
+        assert_eq!(reopened.directory_version("p1"), 4);
+
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
     /// A v1 cache held one phone and an untagged log; the upgrade must keep the

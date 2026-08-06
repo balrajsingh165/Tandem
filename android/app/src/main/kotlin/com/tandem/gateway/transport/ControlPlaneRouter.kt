@@ -22,9 +22,11 @@ import com.tandem.gateway.domain.usecase.RequestAudioRoute
 import com.tandem.gateway.domain.usecase.SendDtmf
 import com.tandem.gateway.domain.usecase.SetMute
 import com.tandem.gateway.domain.usecase.SyncCallLog
+import com.tandem.gateway.domain.usecase.SyncContacts
 import com.tandem.gateway.domain.usecase.UnholdCall
 import com.tandem.gateway.proto.v1.Ack
 import com.tandem.gateway.proto.v1.CallLogSyncResponse
+import com.tandem.gateway.proto.v1.ContactsSyncResponse
 import com.tandem.gateway.proto.v1.Envelope
 import com.tandem.gateway.proto.v1.ErrorCode
 import com.tandem.gateway.proto.v1.HeartbeatAck
@@ -44,6 +46,7 @@ class ControlPlaneRouter @Inject constructor(
     private val sendDtmf: SendDtmf,
     private val requestAudioRoute: RequestAudioRoute,
     private val syncCallLog: SyncCallLog,
+    private val syncContacts: SyncContacts,
     private val pairedDeviceRepository: PairedDeviceRepository,
     private val codec: EnvelopeCodec,
 ) {
@@ -125,6 +128,25 @@ class ControlPlaneRouter @Inject constructor(
                                 .addAllEntries(page.entries.map(codec::toProto))
                                 .setLogVersion(page.logVersion)
                                 .setHasMore(page.hasMore)
+                                .build(),
+                        )
+                        .build()
+                }
+
+            Envelope.PayloadCase.CONTACTS_SYNC_REQUEST ->
+                syncContacts(
+                    envelope.contactsSyncRequest.offset,
+                    envelope.contactsSyncRequest.maxEntries,
+                ).map { page ->
+                    Envelope.newBuilder()
+                        .setProtocolVersion(EnvelopeCodec.PROTOCOL_VERSION)
+                        .setInReplyTo(envelope.messageId)
+                        .setContactsSyncResponse(
+                            ContactsSyncResponse.newBuilder()
+                                .setStatus(codec.status(ErrorCode.ERROR_CODE_OK))
+                                .addAllEntries(page.entries.map(codec::toProto))
+                                .setHasMore(page.hasMore)
+                                .setDirectoryVersion(page.directoryVersion)
                                 .build(),
                         )
                         .build()

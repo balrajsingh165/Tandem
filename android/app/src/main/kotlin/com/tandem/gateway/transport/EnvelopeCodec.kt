@@ -6,6 +6,7 @@
 package com.tandem.gateway.transport
 
 import com.tandem.gateway.domain.model.AudioRoute
+import com.tandem.gateway.domain.model.ContactNumber
 import com.tandem.gateway.domain.model.Call
 import com.tandem.gateway.domain.model.CallDirection
 import com.tandem.gateway.domain.model.CallLogEntry
@@ -14,6 +15,7 @@ import com.tandem.gateway.domain.model.CallSnapshot
 import com.tandem.gateway.domain.model.CallState
 import com.tandem.gateway.domain.model.DisconnectCause
 import com.tandem.gateway.proto.v1.AudioRoute as ProtoAudioRoute
+import com.tandem.gateway.proto.v1.ContactEntry as ProtoContactEntry
 import com.tandem.gateway.proto.v1.CallDirection as ProtoCallDirection
 import com.tandem.gateway.proto.v1.CallInfo
 import com.tandem.gateway.proto.v1.CallLogEntry as ProtoCallLogEntry
@@ -72,6 +74,15 @@ class EnvelopeCodec @Inject constructor() {
             .setIsEmergency(call.isEmergency)
             .setDisconnectCause(toProto(call.disconnectCause))
             .setSimSlot(call.simSlot)
+            .build()
+
+    fun toProto(contact: ContactNumber): ProtoContactEntry =
+        ProtoContactEntry.newBuilder()
+            .setContactId(contact.contactId)
+            .setDisplayName(contact.displayName)
+            .setNumber(contact.number)
+            .setLabel(contact.label)
+            .setStarred(contact.starred)
             .build()
 
     fun toProto(entry: CallLogEntry): ProtoCallLogEntry =

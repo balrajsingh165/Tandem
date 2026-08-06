@@ -119,6 +119,12 @@ pub enum OutboundRequest {
         /// Exclusive upper bound for newest-first paging; 0 asks for the newest.
         before_ms: i64,
     },
+    /// Pulls one page of the phone's address book so the desktop can offer
+    /// dial-by-name without the phone in hand.
+    SyncContacts {
+        offset: u32,
+        max_entries: u32,
+    },
     /// Tells the phone this desktop is forgetting the pairing, so trust is
     /// dropped on both sides rather than only here.
     Unpair,

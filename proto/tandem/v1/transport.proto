@@ -9,6 +9,7 @@ package tandem.v1;
 import "tandem/v1/common.proto";
 import "tandem/v1/call.proto";
 import "tandem/v1/calllog.proto";
+import "tandem/v1/contacts.proto";
 import "tandem/v1/pairing.proto";
 
 option java_package = "com.tandem.gateway.proto.v1";
@@ -103,6 +104,11 @@ message Envelope {
     CallLogSyncRequest call_log_sync_request = 50;
     CallLogSyncResponse call_log_sync_response = 51;
     CallLogChangedEvent call_log_changed_event = 52;
+
+    // Contact directory sync.
+    ContactsSyncRequest contacts_sync_request = 53;
+    ContactsSyncResponse contacts_sync_response = 54;
+    ContactsChangedEvent contacts_changed_event = 55;
 
     // Pairing (provisional sessions) and trust lifecycle.
     PairingRequest pairing_request = 60;
