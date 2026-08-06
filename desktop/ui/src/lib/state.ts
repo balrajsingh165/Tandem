@@ -35,6 +35,14 @@ export const history = writable<HistoryEntry[]>([]);
 
 /** The phones' address books, as synced. Empty until a phone reports them. */
 export const contacts = writable<ContactView[]>([]);
+
+/**
+ * How the last directory fetch went. Swallowing this is what makes an empty list
+ * indistinguishable from a failed sync, so the UI reads it and says which.
+ */
+export type SyncState = 'idle' | 'syncing' | 'ready' | 'failed';
+export const contactsSync = writable<SyncState>('idle');
+export const contactsError = writable<string | null>(null);
 export const pairingState = writable<{ state: string; shortCode: string | null } | null>(null);
 
 /** Non-null while a phone that scanned this desktop's code awaits a verdict. */
@@ -81,8 +89,18 @@ export async function loadHistory(
 export async function loadContacts(
   fetch: () => Promise<{ entries: ContactView[] }>,
 ): Promise<void> {
-  const page = await fetch();
-  contacts.set(page.entries);
+  contactsSync.set('syncing');
+  contactsError.set(null);
+  try {
+    const page = await fetch();
+    contacts.set(page.entries);
+    contactsSync.set('ready');
+  } catch (error) {
+    contactsSync.set('failed');
+    contactsError.set(
+      error instanceof Error ? error.message : 'Could not read contacts from the phone',
+    );
+  }
 }
 
 export function applyStatus(status: StatusResult): void {

@@ -23,7 +23,10 @@ class InCallActivity : ComponentActivity() {
 
         setContent {
             TandemTheme {
-                InCallScreen()
+                // The call screen owns no lifecycle; when the last call goes away
+                // this activity has to leave with it rather than sitting on a
+                // "Call ended" message the user must dismiss.
+                InCallScreen(onCallsEnded = { finishAndRemoveTask() })
             }
         }
     }

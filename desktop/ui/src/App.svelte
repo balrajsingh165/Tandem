@@ -44,7 +44,7 @@
       try {
         applyStatus(await ipc.status());
         void loadHistory(ipc.history).catch(() => {});
-        void loadContacts(ipc.contacts).catch(() => {});
+        void loadContacts(ipc.contacts);
 
         unlisten = await ipc.onEvent((event) => {
           applyEvent(event);
@@ -54,7 +54,7 @@
             void loadHistory(ipc.history).catch(() => {});
           }
           if (event.type === 'contactsChanged') {
-            void loadContacts(ipc.contacts).catch(() => {});
+            void loadContacts(ipc.contacts);
           }
         });
       } catch (error) {

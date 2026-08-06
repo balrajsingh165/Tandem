@@ -6,12 +6,21 @@
    */
 
   import { ipc } from '$lib/ipc';
-  import { contacts, history, isConnected } from '$lib/state';
+  import {
+    contacts,
+    contactsError,
+    contactsSync,
+    history,
+    isConnected,
+    loadContacts,
+  } from '$lib/state';
   import { contactsFromHistory, normalize, type Contact } from '$lib/contacts';
   import { formatNumber } from '$lib/format';
 
   let query = $state('');
   let failure = $state<string | null>(null);
+
+  const syncing = $derived($contactsSync === 'syncing');
 
   // The phone's address book is authoritative. Call history fills in anyone not
   // saved as a contact, so a number you have spoken to is still reachable here.
@@ -67,9 +76,13 @@
   <header>
     <h1>Contacts</h1>
     <p class="label">
-      {$contacts.length > 0
-        ? `${all.length} contacts · ${$contacts.length} from your phone`
-        : `${all.length} from your call history`}
+      {#if syncing}
+        Syncing…
+      {:else if $contacts.length > 0}
+        {all.length} contacts · {$contacts.length} from your phone
+      {:else}
+        {all.length} from your call history
+      {/if}
     </p>
   </header>
 
@@ -86,10 +99,28 @@
     <p class="failure" role="alert">{failure}</p>
   {/if}
 
-  {#if all.length === 0}
+  {#if $contactsError}
+    <div class="notice">
+      <p class="failure" role="alert">{$contactsError}</p>
+      <button type="button" class="retry" onclick={() => loadContacts(ipc.contacts)}>
+        Try again
+      </button>
+    </div>
+  {/if}
+
+  {#if syncing && all.length === 0}
+    <p class="empty"><span class="spinner" aria-hidden="true"></span> Reading contacts from your phone…</p>
+  {:else if all.length === 0}
     <p class="empty">
-      Nothing yet. Contacts appear here once your phone's call history has synced.
+      {$isConnected
+        ? 'No contacts yet. Grant Tandem access to Contacts on your phone, then sync again.'
+        : "Pair a phone to read its contacts."}
     </p>
+    {#if $isConnected}
+      <button type="button" class="retry" onclick={() => loadContacts(ipc.contacts)}>
+        Sync now
+      </button>
+    {/if}
   {:else if matches.length === 0}
     <p class="empty">No contact matches “{query}”.</p>
   {:else}
@@ -236,5 +267,35 @@
 
   .failure {
     color: var(--danger);
+  }
+
+  .notice {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px;
+    border-radius: var(--radius-s);
+    background: var(--danger-a15);
+  }
+
+  .retry {
+    align-self: flex-start;
+    padding: 7px 12px;
+    border-radius: var(--radius-s);
+    border: 1px solid var(--hairline);
+    background: var(--surface);
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 650;
+  }
+
+  .spinner {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    margin-right: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: halo 1.3s ease-in-out infinite;
   }
 </style>

@@ -49,10 +49,24 @@ import com.tandem.gateway.domain.model.AudioRoute
 import com.tandem.gateway.domain.model.CallState
 import kotlinx.coroutines.delay
 
+/** How long "Call ended" stays up before the screen closes itself. */
+private const val CALL_ENDED_LINGER_MS = 1200L
+
 @Composable
-fun InCallScreen(viewModel: InCallViewModel = hiltViewModel()) {
+fun InCallScreen(
+    onCallsEnded: () -> Unit = {},
+    viewModel: InCallViewModel = hiltViewModel(),
+) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val call = state.primaryCall
+
+    // A short beat so the outcome is legible, then the screen gets out of the way.
+    LaunchedEffect(call == null) {
+        if (call == null) {
+            delay(CALL_ENDED_LINGER_MS)
+            onCallsEnded()
+        }
+    }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
