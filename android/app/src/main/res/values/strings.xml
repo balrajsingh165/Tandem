@@ -66,5 +66,6 @@
     <string name="dialpad_title">Dial</string>
     <string name="dialpad_call">Call</string>
     <string name="dialpad_hint">Enter a number</string>
+    <string name="menu_connect">Connect a computer</string>
     <string name="dialpad_delete">Delete</string>
 </resources>

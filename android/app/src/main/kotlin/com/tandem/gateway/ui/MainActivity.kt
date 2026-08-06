@@ -35,11 +35,9 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             TandemTheme {
-                var destination by remember {
-                    mutableStateOf(
-                        if (prefilledNumber != null) Destination.DIALPAD else Destination.STATUS,
-                    )
-                }
+                // A dialer's home is the dialer. Tandem's own features live behind
+                // the menu, so the app reads as a phone app first.
+                var destination by remember { mutableStateOf(Destination.DIALPAD) }
 
                 when (destination) {
                     Destination.STATUS -> StatusScreen(
@@ -58,7 +56,7 @@ class MainActivity : ComponentActivity() {
 
                     Destination.DIALPAD -> DialpadScreen(
                         initialNumber = prefilledNumber.orEmpty(),
-                        onBack = { destination = Destination.STATUS },
+                        onOpenConnect = { destination = Destination.STATUS },
                     )
                 }
             }

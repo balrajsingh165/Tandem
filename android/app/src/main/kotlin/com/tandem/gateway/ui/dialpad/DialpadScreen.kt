@@ -21,13 +21,23 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Computer
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -62,7 +72,7 @@ private val KEYS = listOf(
 @Composable
 fun DialpadScreen(
     initialNumber: String,
-    onBack: () -> Unit,
+    onOpenConnect: () -> Unit,
     viewModel: DialpadViewModel = hiltViewModel(),
 ) {
     val dialString by viewModel.dialString.collectAsStateWithLifecycle()
@@ -81,8 +91,35 @@ fun DialpadScreen(
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Row(Modifier.fillMaxWidth()) {
-                TextButton(onClick = onBack) { Text("← Back") }
+            // A phone app's chrome: the product name, and one menu holding
+            // everything that is not dialling.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Phone",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                var menuOpen by remember { mutableStateOf(false) }
+                Box {
+                    IconButton(onClick = { menuOpen = true }) {
+                        Icon(Icons.Filled.Menu, contentDescription = "Menu")
+                    }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.menu_connect)) },
+                            leadingIcon = {
+                                Icon(Icons.Filled.Computer, contentDescription = null)
+                            },
+                            onClick = {
+                                menuOpen = false
+                                onOpenConnect()
+                            },
+                        )
+                    }
+                }
             }
 
             Spacer(Modifier.weight(0.5f))

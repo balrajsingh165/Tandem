@@ -123,6 +123,12 @@ dependencies {
     implementation(libs.bouncycastle)
     implementation(libs.zxing.core)
 
+    // Offline number metadata for callers with no saved contact; no lookup
+    // service, so nothing about the caller leaves the phone.
+    implementation(libs.libphonenumber)
+    implementation(libs.libphonenumber.geocoder)
+    implementation(libs.libphonenumber.carrier)
+
     implementation(libs.camera.core)
     implementation(libs.camera.camera2)
     implementation(libs.camera.lifecycle)

@@ -39,6 +39,7 @@ fun StatusScreen(
     onOpenPairing: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenDialpad: () -> Unit,
+    onBack: () -> Unit = onOpenDialpad,
     viewModel: StatusViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -51,7 +52,8 @@ fun StatusScreen(
 
     TandemScreen(
         title = "Tandem",
-        eyebrow = "Phone gateway",
+        eyebrow = "Connect",
+        onBack = onBack,
         trailing = {
             StatusPill(
                 text = if (ready) "Ready" else "Setup",

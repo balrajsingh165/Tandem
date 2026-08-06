@@ -31,6 +31,8 @@ import kotlinx.coroutines.launch
 
 data class InCallUiState(
     val primaryCall: Call? = null,
+    /** Offline metadata for a caller with no saved name; blank when known. */
+    val callerInsight: String = "",
     val muted: Boolean = false,
     val audioRoute: AudioRoute = AudioRoute.EARPIECE,
     val canMerge: Boolean = false,
