@@ -7,6 +7,7 @@ package com.tandem.gateway.ui.incall
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.tandem.gateway.contacts.NumberInsightResolver
 import com.tandem.gateway.domain.model.AudioRoute
 import com.tandem.gateway.domain.model.AudioRouteTarget
 import com.tandem.gateway.domain.model.Call
@@ -52,6 +53,7 @@ class InCallViewModel @Inject constructor(
     private val mergeCalls: MergeCalls,
     private val sendDtmf: SendDtmf,
     private val requestAudioRoute: RequestAudioRoute,
+    private val numberInsightResolver: NumberInsightResolver,
 ) : ViewModel() {
 
     private val snapshots: StateFlow<CallSnapshot?> = observeCallState()
@@ -60,8 +62,16 @@ class InCallViewModel @Inject constructor(
     val uiState: StateFlow<InCallUiState> = snapshots
         .map { snapshot ->
             val live = snapshot?.calls.orEmpty().filter { !it.isTerminal }
+            val primary = live.firstOrNull { it.isRinging } ?: live.firstOrNull()
+
             InCallUiState(
-                primaryCall = live.firstOrNull { it.isRinging } ?: live.firstOrNull(),
+                primaryCall = primary,
+                // Only worth showing when there is no name to show instead: it
+                // answers "who is this?" for an unknown caller, offline.
+                callerInsight = primary
+                    ?.takeIf { it.remoteDisplayName.isBlank() }
+                    ?.let { numberInsightResolver.insightFor(it.remoteNumber)?.summary }
+                    .orEmpty(),
                 muted = snapshot?.microphoneMuted ?: false,
                 audioRoute = snapshot?.audioRoute ?: AudioRoute.EARPIECE,
                 canMerge = live.size > 1,

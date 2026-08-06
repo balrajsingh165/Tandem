@@ -129,6 +129,16 @@ fun InCallScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            } else if (state.callerInsight.isNotEmpty()) {
+                // Nothing saved for this number, so say what can be known from the
+                // digits alone rather than leaving the caller anonymous.
+                Spacer(Modifier.size(4.dp))
+                Text(
+                    text = state.callerInsight,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
             }
 
             Spacer(Modifier.size(10.dp))

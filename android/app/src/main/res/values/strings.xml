@@ -74,5 +74,7 @@
     <string name="home_loading">Loading…</string>
     <string name="home_no_recents">No calls yet.</string>
     <string name="home_no_contacts">No contacts yet.</string>
+    <string name="action_message">Message</string>
+    <string name="action_whatsapp">WhatsApp</string>
     <string name="dialpad_delete">Delete</string>
 </resources>

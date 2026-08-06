@@ -5,6 +5,9 @@
  */
 package com.tandem.gateway.ui.home
 
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,7 +23,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CallMade
 import androidx.compose.material.icons.filled.CallMissed
 import androidx.compose.material.icons.filled.CallReceived
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Computer
+import androidx.compose.material.icons.filled.Message
 import androidx.compose.material.icons.filled.Dialpad
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Menu
@@ -44,6 +50,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -175,10 +182,12 @@ private fun RecentsList(
             val subtitle = entry.displayName.takeIf { it.isNotBlank() }
                 ?.let { entry.number }
                 ?: insightFor(entry.number)
+            var expanded by remember(entry.entryId) { mutableStateOf(false) }
 
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .clickable { expanded = !expanded }
                     .padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -212,14 +221,77 @@ private fun RecentsList(
                 }
                 IconButton(onClick = { onCall(entry.number) }) {
                     Icon(
-                        Icons.Filled.CallMade,
+                        Icons.Filled.Call,
                         contentDescription = stringResource(R.string.dialpad_call),
                         tint = MaterialTheme.colorScheme.primary,
                     )
                 }
             }
+
+            if (expanded) {
+                RowActions(number = entry.number)
+            }
         }
     }
+}
+
+/**
+ * Hands the number to the app that owns the conversation rather than reading it.
+ * Tandem never touches message content: SMS goes out as an intent, WhatsApp via its
+ * public wa.me link, and a missing app simply means the action is not offered.
+ */
+@Composable
+private fun RowActions(number: String) {
+    val context = LocalContext.current
+    val digits = remember(number) { number.filter { it.isDigit() || it == '+' } }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 48.dp, end = 16.dp, bottom = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        ActionChip(
+            label = stringResource(R.string.action_message),
+            icon = Icons.Filled.Message,
+        ) {
+            context.launchOrIgnore(
+                Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:$digits")),
+            )
+        }
+        ActionChip(
+            label = stringResource(R.string.action_whatsapp),
+            icon = Icons.Filled.Chat,
+        ) {
+            // wa.me is WhatsApp's documented deep link and needs no permission.
+            context.launchOrIgnore(
+                Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/${digits.removePrefix("+")}")),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ActionChip(label: String, icon: ImageVector, onClick: () -> Unit) {
+    Surface(
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        onClick = onClick,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(icon, contentDescription = null, Modifier.size(15.dp))
+            Text(text = label, style = MaterialTheme.typography.labelSmall)
+        }
+    }
+}
+
+/** A phone without the target app must not crash the dialer. */
+private fun android.content.Context.launchOrIgnore(intent: Intent) {
+    runCatching { startActivity(intent) }
 }
 
 @Composable
