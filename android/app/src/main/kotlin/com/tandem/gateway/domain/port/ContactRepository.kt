@@ -7,9 +7,39 @@ package com.tandem.gateway.domain.port
 
 import com.tandem.gateway.domain.model.ContactNumber
 
+/** How the directory is ordered. Sorting belongs to the query: sorting a page
+ *  client-side would reorder only the rows in hand, which reads as a bug. */
+enum class ContactSort {
+    NAME,
+    RECENT,
+    STARRED_FIRST,
+}
+
+/** One account the address book draws from, as the phone actually reports it. */
+data class ContactSource(
+    val accountType: String,
+    val label: String,
+    val count: Int,
+)
+
 interface ContactRepository {
-    /** The phone caps [maxEntries] regardless of what a desktop asks for. */
-    suspend fun page(offset: Int, maxEntries: Int): Result<ContactPage>
+    /**
+     * The phone caps [maxEntries] regardless of what a desktop asks for. An empty
+     * [sources] means every account, which is what a dialer shows by default.
+     */
+    suspend fun page(
+        offset: Int,
+        maxEntries: Int,
+        sources: Set<String> = emptySet(),
+        sort: ContactSort = ContactSort.NAME,
+    ): Result<ContactPage>
+
+    /**
+     * The accounts present on this phone. Never a hardcoded list: SIM account
+     * types differ by OEM, so offering a choice the phone does not have would be
+     * a dead option (docs/17).
+     */
+    suspend fun sources(): Result<List<ContactSource>>
 
     /**
      * Changes whenever the address book does, so a desktop can tell a stale

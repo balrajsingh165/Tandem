@@ -14,6 +14,8 @@ import androidx.core.content.ContextCompat
 import com.tandem.gateway.domain.model.ContactNumber
 import com.tandem.gateway.domain.port.ContactPage
 import com.tandem.gateway.domain.port.ContactRepository
+import com.tandem.gateway.domain.port.ContactSort
+import com.tandem.gateway.domain.port.ContactSource
 import com.tandem.gateway.domain.port.StoreError
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -27,7 +29,12 @@ class ContactRepositoryImpl @Inject constructor(
     private val ioDispatcher: CoroutineDispatcher,
 ) : ContactRepository {
 
-    override suspend fun page(offset: Int, maxEntries: Int): Result<ContactPage> =
+    override suspend fun page(
+        offset: Int,
+        maxEntries: Int,
+        sources: Set<String>,
+        sort: ContactSort,
+    ): Result<ContactPage> =
         withContext(ioDispatcher) {
             if (!hasPermission()) {
                 return@withContext Result.failure(StoreError.PermissionDenied)
@@ -52,12 +59,21 @@ class ContactRepositoryImpl @Inject constructor(
                     )
                     .build()
 
+                // An empty source set means every account; a non-empty one becomes
+                // an IN clause so the provider does the filtering.
+                val selection = sources
+                    .takeIf { it.isNotEmpty() }
+                    ?.let { types ->
+                        val placeholders = types.joinToString(",") { "?" }
+                        "${ContactsContract.RawContacts.ACCOUNT_TYPE} IN ($placeholders)"
+                    }
+
                 context.contentResolver.query(
                     uri,
                     PROJECTION,
-                    null,
-                    null,
-                    "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME_PRIMARY} ASC",
+                    selection,
+                    sources.takeIf { it.isNotEmpty() }?.toTypedArray(),
+                    orderFor(sort),
                 )?.use { cursor ->
                     val idIndex =
                         cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.CONTACT_ID)
@@ -124,6 +140,51 @@ class ContactRepositoryImpl @Inject constructor(
                 newest * 31 + cursor.count
             } ?: 0L
         }.getOrDefault(0L)
+    }
+
+    override suspend fun sources(): Result<List<ContactSource>> = withContext(ioDispatcher) {
+        if (!hasPermission()) return@withContext Result.failure(StoreError.PermissionDenied)
+
+        runCatching {
+            val counts = linkedMapOf<String, Int>()
+            context.contentResolver.query(
+                ContactsContract.RawContacts.CONTENT_URI,
+                arrayOf(ContactsContract.RawContacts.ACCOUNT_TYPE),
+                "${ContactsContract.RawContacts.DELETED} = 0",
+                null,
+                null,
+            )?.use { cursor ->
+                while (cursor.moveToNext()) {
+                    val type = cursor.getString(0).orEmpty()
+                    counts[type] = (counts[type] ?: 0) + 1
+                }
+            }
+
+            counts.map { (type, count) ->
+                ContactSource(accountType = type, label = labelForAccount(type), count = count)
+            }
+        }
+    }
+
+    /** Account types are machine strings; the user reads where contacts came from. */
+    private fun labelForAccount(type: String): String = when {
+        type.isEmpty() -> "This phone"
+        type.contains("google", ignoreCase = true) -> "Google"
+        type.contains("sim", ignoreCase = true) -> "SIM"
+        type.contains("whatsapp", ignoreCase = true) -> "WhatsApp"
+        type.contains("telegram", ignoreCase = true) -> "Telegram"
+        else -> type.substringAfterLast('.').replaceFirstChar(Char::titlecase)
+    }
+
+    private fun orderFor(sort: ContactSort): String = when (sort) {
+        ContactSort.NAME ->
+            "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME_PRIMARY} ASC"
+        ContactSort.RECENT ->
+            "${ContactsContract.Contacts.LAST_TIME_CONTACTED} DESC, " +
+                "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME_PRIMARY} ASC"
+        ContactSort.STARRED_FIRST ->
+            "${ContactsContract.CommonDataKinds.Phone.STARRED} DESC, " +
+                "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME_PRIMARY} ASC"
     }
 
     private fun hasPermission(): Boolean =

@@ -61,6 +61,8 @@ import com.tandem.gateway.R
 import com.tandem.gateway.domain.model.CallLogEntry
 import com.tandem.gateway.domain.model.CallLogType
 import com.tandem.gateway.domain.model.ContactNumber
+import com.tandem.gateway.domain.port.ContactSort
+import com.tandem.gateway.domain.port.ContactSource
 import com.tandem.gateway.ui.dialpad.DialpadScreen
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -142,12 +144,21 @@ fun HomeScreen(
                     onCall = viewModel::call,
                 )
 
-                Tab.CONTACTS -> ContactsList(
-                    entries = state.contacts,
-                    loading = state.loading,
-                    notice = state.notice,
-                    onCall = viewModel::call,
-                )
+                Tab.CONTACTS -> Column {
+                    ContactControls(
+                        sort = state.sort,
+                        sources = state.sources,
+                        selected = state.selectedSources,
+                        onSort = viewModel::setSort,
+                        onToggleSource = viewModel::toggleSource,
+                    )
+                    ContactsList(
+                        entries = state.contacts,
+                        loading = state.loading,
+                        notice = state.notice,
+                        onCall = viewModel::call,
+                    )
+                }
 
                 // The keypad screen owns its own chrome, so it is given the plain
                 // variant rather than a second top bar.
@@ -292,6 +303,71 @@ private fun ActionChip(label: String, icon: ImageVector, onClick: () -> Unit) {
 /** A phone without the target app must not crash the dialer. */
 private fun android.content.Context.launchOrIgnore(intent: Intent) {
     runCatching { startActivity(intent) }
+}
+
+/**
+ * Sort and source pickers. Both re-run the provider query rather than reordering
+ * the page in hand, so the whole directory answers to them.
+ */
+@Composable
+private fun ContactControls(
+    sort: ContactSort,
+    sources: List<ContactSource>,
+    selected: Set<String>,
+    onSort: (ContactSort) -> Unit,
+    onToggleSource: (String) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            SortChip("Name", sort == ContactSort.NAME) { onSort(ContactSort.NAME) }
+            SortChip("Recent", sort == ContactSort.RECENT) { onSort(ContactSort.RECENT) }
+            SortChip("Starred", sort == ContactSort.STARRED_FIRST) {
+                onSort(ContactSort.STARRED_FIRST)
+            }
+        }
+
+        // Only shown when the phone has more than one account; a single-source
+        // phone has nothing to choose between.
+        if (sources.size > 1) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                sources.forEach { source ->
+                    SortChip(
+                        label = "${source.label} (${source.count})",
+                        active = selected.isEmpty() || source.accountType in selected,
+                    ) { onToggleSource(source.accountType) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SortChip(label: String, active: Boolean, onClick: () -> Unit) {
+    Surface(
+        shape = MaterialTheme.shapes.small,
+        color = if (active) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant
+        },
+        onClick = onClick,
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = if (active) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+        )
+    }
 }
 
 @Composable

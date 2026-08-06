@@ -13,6 +13,8 @@ import com.tandem.gateway.domain.model.CallLogEntry
 import com.tandem.gateway.domain.model.ContactNumber
 import com.tandem.gateway.domain.port.CallLogRepository
 import com.tandem.gateway.domain.port.ContactRepository
+import com.tandem.gateway.domain.port.ContactSort
+import com.tandem.gateway.domain.port.ContactSource
 import com.tandem.gateway.domain.usecase.PlaceCall
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -27,6 +29,10 @@ private const val CONTACTS_PAGE = 400
 data class HomeUiState(
     val recents: List<CallLogEntry> = emptyList(),
     val contacts: List<ContactNumber> = emptyList(),
+    /** Accounts this phone actually has, for the source picker. */
+    val sources: List<ContactSource> = emptyList(),
+    val selectedSources: Set<String> = emptySet(),
+    val sort: ContactSort = ContactSort.NAME,
     val loading: Boolean = true,
     /** Set when a provider refused; the tab says so rather than looking empty. */
     val notice: String? = null,
@@ -50,15 +56,38 @@ class HomeViewModel @Inject constructor(
         refresh()
     }
 
+    fun setSort(sort: ContactSort) {
+        _uiState.value = _uiState.value.copy(sort = sort)
+        refresh()
+    }
+
+    /** Toggling the last selected source falls back to every account. */
+    fun toggleSource(accountType: String) {
+        val current = _uiState.value.selectedSources
+        val next = if (accountType in current) current - accountType else current + accountType
+        _uiState.value = _uiState.value.copy(selectedSources = next)
+        refresh()
+    }
+
     fun refresh() = viewModelScope.launch {
-        _uiState.value = _uiState.value.copy(loading = true, notice = null)
+        val previous = _uiState.value
+        _uiState.value = previous.copy(loading = true, notice = null)
 
         val log = callLogRepository.page(0, RECENTS_PAGE, 0)
-        val book = contactRepository.page(0, CONTACTS_PAGE)
+        val book = contactRepository.page(
+            offset = 0,
+            maxEntries = CONTACTS_PAGE,
+            sources = previous.selectedSources,
+            sort = previous.sort,
+        )
+        val sources = contactRepository.sources().getOrNull().orEmpty()
 
         _uiState.value = HomeUiState(
             recents = log.getOrNull()?.entries.orEmpty(),
             contacts = book.getOrNull()?.entries.orEmpty(),
+            sources = sources,
+            selectedSources = previous.selectedSources,
+            sort = previous.sort,
             loading = false,
             notice = listOfNotNull(
                 "Call history needs permission".takeIf { log.isFailure },
