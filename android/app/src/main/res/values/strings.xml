@@ -62,6 +62,12 @@
     <string name="notification_channel_calls">Calls</string>
     <string name="notification_gateway_title">Tandem is running</string>
     <string name="notification_gateway_body">Ready for calls from your computer</string>
+    <string name="notification_waiting_title">Waiting for a computer</string>
+    <string name="notification_waiting_body">Pair one to place calls from it</string>
+    <string name="notification_connected_title">Connected to %1$s</string>
+    <string name="notification_connected_title_multi">Connected to %1$s and %2$d more</string>
+    <string name="notification_connected_body">It can place and control calls on this phone</string>
+    <string name="notification_disconnect">Disconnect</string>
 
     <string name="dialpad_title">Dial</string>
     <string name="dialpad_call">Call</string>
@@ -77,6 +83,7 @@
     <string name="action_message">Message</string>
     <string name="action_whatsapp">WhatsApp</string>
     <string name="caller_on_whatsapp">On WhatsApp</string>
+    <string name="copied_number">Number copied</string>
 
     <string name="settings_sync_title">What computers can read</string>
     <string name="settings_sync_body">A paired computer can place and control calls. It also mirrors the data below so you can dial by name without this phone in hand.</string>

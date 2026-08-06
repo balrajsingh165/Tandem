@@ -7,7 +7,7 @@ package com.tandem.gateway.ui.home
 
 import android.content.Intent
 import android.net.Uri
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -50,7 +50,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -70,7 +72,7 @@ import java.util.Locale
 
 private enum class Tab { RECENTS, CONTACTS, KEYPAD }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun HomeScreen(
     initialNumber: String,
@@ -172,6 +174,7 @@ fun HomeScreen(
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun RecentsList(
     entries: List<CallLogEntry>,
@@ -180,6 +183,9 @@ private fun RecentsList(
     insightFor: (String) -> String,
     onCall: (String) -> Unit,
 ) {
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+
     if (entries.isEmpty()) {
         Empty(
             if (loading) stringResource(R.string.home_loading) else notice
@@ -198,7 +204,10 @@ private fun RecentsList(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { expanded = !expanded }
+                    .combinedClickable(
+                        onClick = { expanded = !expanded },
+                        onLongClick = { copyNumber(context, clipboard, entry.number) },
+                    )
                     .padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -370,6 +379,7 @@ private fun SortChip(label: String, active: Boolean, onClick: () -> Unit) {
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun ContactsList(
     entries: List<ContactNumber>,
@@ -377,6 +387,9 @@ private fun ContactsList(
     notice: String?,
     onCall: (String) -> Unit,
 ) {
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+
     if (entries.isEmpty()) {
         Empty(
             if (loading) stringResource(R.string.home_loading) else notice
@@ -390,6 +403,10 @@ private fun ContactsList(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .combinedClickable(
+                        onClick = { onCall(contact.number) },
+                        onLongClick = { copyNumber(context, clipboard, contact.number) },
+                    )
                     .padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -433,6 +450,24 @@ private fun ContactsList(
                 }
             }
         }
+    }
+}
+
+/**
+ * Copies a number and says so. Android 13+ shows its own clipboard confirmation, so
+ * a second toast there would be duplicate noise.
+ */
+private fun copyNumber(
+    context: android.content.Context,
+    clipboard: androidx.compose.ui.platform.ClipboardManager,
+    number: String,
+) {
+    clipboard.setText(AnnotatedString(number))
+
+    if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) {
+        android.widget.Toast
+            .makeText(context, context.getString(R.string.copied_number), android.widget.Toast.LENGTH_SHORT)
+            .show()
     }
 }
 

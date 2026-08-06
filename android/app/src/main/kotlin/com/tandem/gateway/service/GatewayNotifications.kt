@@ -12,6 +12,7 @@ import android.content.Context
 import android.content.Intent
 import android.app.PendingIntent
 import com.tandem.gateway.R
+import com.tandem.gateway.domain.port.SessionInfo
 import com.tandem.gateway.ui.MainActivity
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -46,16 +47,17 @@ class GatewayNotifications @Inject constructor(
         )
     }
 
-    fun buildGatewayNotification(connectedDesktops: Int): Notification {
-        val content = if (connectedDesktops > 0) {
-            context.getString(R.string.status_connected_desktops, connectedDesktops)
-        } else {
-            context.getString(R.string.notification_gateway_body)
-        }
+    /**
+     * Names the computer in control rather than announcing that the app is running:
+     * "Tandem is running" tells the user nothing they cannot see from the icon, while
+     * which machine can dial from their SIM is worth a permanent notification. A
+     * connected session also gets a Disconnect action, since the phone must always be
+     * able to take back control without opening anything.
+     */
+    fun buildGatewayNotification(sessions: List<SessionInfo>): Notification {
+        val connected = sessions.firstOrNull()
 
-        return Notification.Builder(context, CHANNEL_GATEWAY)
-            .setContentTitle(context.getString(R.string.notification_gateway_title))
-            .setContentText(content)
+        val builder = Notification.Builder(context, CHANNEL_GATEWAY)
             .setSmallIcon(android.R.drawable.stat_sys_phone_call)
             .setOngoing(true)
             .setContentIntent(
@@ -66,7 +68,44 @@ class GatewayNotifications @Inject constructor(
                     PendingIntent.FLAG_IMMUTABLE,
                 ),
             )
-            .build()
+
+        if (connected == null) {
+            builder
+                .setContentTitle(context.getString(R.string.notification_waiting_title))
+                .setContentText(context.getString(R.string.notification_waiting_body))
+            return builder.build()
+        }
+
+        val extra = sessions.size - 1
+        builder
+            .setContentTitle(
+                if (extra > 0) {
+                    context.getString(
+                        R.string.notification_connected_title_multi,
+                        connected.displayName,
+                        extra,
+                    )
+                } else {
+                    context.getString(R.string.notification_connected_title, connected.displayName)
+                },
+            )
+            .setContentText(context.getString(R.string.notification_connected_body))
+            .addAction(
+                Notification.Action.Builder(
+                    null,
+                    context.getString(R.string.notification_disconnect),
+                    PendingIntent.getService(
+                        context,
+                        1,
+                        Intent(context, GatewayForegroundService::class.java)
+                            .setAction(GatewayForegroundService.ACTION_DISCONNECT)
+                            .putExtra(GatewayForegroundService.EXTRA_DEVICE_ID, connected.deviceId),
+                        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                    ),
+                ).build(),
+            )
+
+        return builder.build()
     }
 
     companion object {

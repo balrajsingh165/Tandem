@@ -43,6 +43,7 @@ class GatewayForegroundService : Service() {
     @Inject lateinit var notifications: GatewayNotifications
     @Inject lateinit var emergencyNumberSource: EmergencyNumberSource
     @Inject lateinit var telecomBridge: TelecomBridgeImpl
+    @Inject lateinit var revokeDesktop: com.tandem.gateway.domain.usecase.RevokeDesktop
 
     private val scope = CoroutineScope(SupervisorJob())
     private var running = false
@@ -56,6 +57,14 @@ class GatewayForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Revoking from the notification must work whether or not the service was
+        // already up, so the action is handled before the start guard.
+        if (intent?.action == ACTION_DISCONNECT) {
+            intent.getStringExtra(EXTRA_DEVICE_ID)?.let { deviceId ->
+                scope.launch { revokeDesktop(deviceId, reason = "disconnected on the phone") }
+            }
+        }
+
         if (!running) {
             running = true
             promoteToForeground()
@@ -99,7 +108,7 @@ class GatewayForegroundService : Service() {
     private fun promoteToForeground() {
         startForeground(
             GatewayNotifications.NOTIFICATION_ID_GATEWAY,
-            notifications.buildGatewayNotification(connectedDesktops = 0),
+            notifications.buildGatewayNotification(emptyList()),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL or
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
         )
@@ -143,11 +152,17 @@ class GatewayForegroundService : Service() {
                 notifications.ensureChannels()
                 startForeground(
                     GatewayNotifications.NOTIFICATION_ID_GATEWAY,
-                    notifications.buildGatewayNotification(sessions.size),
+                    notifications.buildGatewayNotification(sessions),
                     ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL or
                         ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
                 )
             }
             .launchIn(scope)
+    }
+
+    companion object {
+        /** Sent by the notification's Disconnect action; names the desktop to revoke. */
+        const val ACTION_DISCONNECT: String = "com.tandem.gateway.DISCONNECT"
+        const val EXTRA_DEVICE_ID: String = "device_id"
     }
 }
