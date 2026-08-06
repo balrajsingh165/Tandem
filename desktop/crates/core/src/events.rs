@@ -116,6 +116,8 @@ pub enum OutboundRequest {
     SyncCallLog {
         since_ms: i64,
         max_entries: u32,
+        /// Exclusive upper bound for newest-first paging; 0 asks for the newest.
+        before_ms: i64,
     },
     /// Tells the phone this desktop is forgetting the pairing, so trust is
     /// dropped on both sides rather than only here.

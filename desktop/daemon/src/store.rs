@@ -10,9 +10,11 @@ use tandem_core::model::{CallLogRow, PairedPhone};
 /// Schema version; a mismatch triggers migration rather than silent misreads.
 pub const SCHEMA_VERSION: u32 = 2;
 
-/// The call-log mirror is bounded — it is a convenience projection of the
-/// phone's OS log, not an archive (docs/09 retention policy).
-pub const MIRROR_MAX_ENTRIES: usize = 1000;
+/// The call-log mirror is bounded — it is a projection of the phone's OS log, not
+/// an archive (docs/09 retention policy). Large enough to hold a typical phone's
+/// entire log so "recents" is really the whole history, small enough that the
+/// cache stays a file the daemon can rewrite cheaply.
+pub const MIRROR_MAX_ENTRIES: usize = 5000;
 
 /// Page size for incremental sync, matching the phone-side cap.
 pub const SYNC_PAGE_SIZE: u32 = 200;

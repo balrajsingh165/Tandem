@@ -254,9 +254,28 @@ impl WsTransportClient {
                 Some(Ok(Message::Ping(_) | Message::Pong(_) | Message::Text(_))) => continue,
                 Some(Ok(Message::Close(_))) | None => return Err(TransportError::Closed),
                 Some(Ok(Message::Frame(_))) => continue,
-                Some(Err(e)) => return Err(TransportError::ProtocolViolation(e.to_string())),
+                Some(Err(e)) => return Err(from_stream_error(e)),
             }
         }
+    }
+}
+
+/// Distinguishes a dropped connection from a peer that broke the protocol.
+///
+/// A phone whose process is killed, whose screen turns off, or whose Wi-Fi blips
+/// closes the socket without a TLS close_notify or a WebSocket Close frame. That
+/// is an ordinary disconnect and must be retried; treating it as a protocol
+/// violation stops the supervisor for good and the desktop never comes back.
+fn from_stream_error(error: tokio_tungstenite::tungstenite::Error) -> TransportError {
+    use tokio_tungstenite::tungstenite::Error as WsError;
+
+    match error {
+        WsError::ConnectionClosed | WsError::AlreadyClosed => TransportError::Closed,
+        WsError::Io(_) => TransportError::Closed,
+        WsError::Protocol(
+            tokio_tungstenite::tungstenite::error::ProtocolError::ResetWithoutClosingHandshake,
+        ) => TransportError::Closed,
+        other => TransportError::ProtocolViolation(other.to_string()),
     }
 }
 
@@ -297,3 +316,39 @@ pub const TLS_SERVER_NAME: &str = "tandem.local";
 
 /// WebSocket path the gateway serves.
 pub const WS_PATH: &str = "/tlp/v1";
+
+#[cfg(test)]
+mod stream_error_tests {
+    use super::*;
+
+    /// A phone that vanishes mid-session must be retried, not written off: this
+    /// classification is what decides whether the desktop ever reconnects.
+    #[test]
+    fn an_abrupt_disconnect_is_retryable() {
+        use tokio_tungstenite::tungstenite::error::ProtocolError;
+        use tokio_tungstenite::tungstenite::Error as WsError;
+
+        let unexpected_eof = WsError::Io(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "peer closed connection without sending TLS close_notify",
+        ));
+        assert!(from_stream_error(unexpected_eof).is_retryable());
+
+        assert!(from_stream_error(WsError::ConnectionClosed).is_retryable());
+        assert!(from_stream_error(WsError::AlreadyClosed).is_retryable());
+        assert!(from_stream_error(WsError::Protocol(
+            ProtocolError::ResetWithoutClosingHandshake
+        ))
+        .is_retryable());
+    }
+
+    /// A genuinely malformed peer is still fatal; retrying cannot fix it.
+    #[test]
+    fn a_broken_peer_is_not_retryable() {
+        use tokio_tungstenite::tungstenite::error::ProtocolError;
+        use tokio_tungstenite::tungstenite::Error as WsError;
+
+        let bad = from_stream_error(WsError::Protocol(ProtocolError::WrongHttpMethod));
+        assert!(!bad.is_retryable());
+    }
+}

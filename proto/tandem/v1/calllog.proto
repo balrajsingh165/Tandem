@@ -32,6 +32,9 @@ message CallLogEntry {
 message CallLogSyncRequest {
   int64 since_ms = 1;               // Return entries with started_at_ms >= since_ms.
   uint32 max_entries = 2;           // Page size; server caps at 200.
+  // Exclusive upper bound, newest-first paging: set to the oldest entry already
+  // received to walk further back. 0 means no upper bound.
+  int64 before_ms = 3;
 }
 
 message CallLogSyncResponse {

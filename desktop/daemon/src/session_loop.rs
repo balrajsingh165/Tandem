@@ -179,9 +179,11 @@ pub fn to_payload(request: OutboundRequest) -> Payload {
         OutboundRequest::SyncCallLog {
             since_ms,
             max_entries,
+            before_ms,
         } => Payload::CallLogSyncRequest(p::CallLogSyncRequest {
             since_ms,
             max_entries,
+            before_ms,
         }),
         OutboundRequest::Unpair => Payload::UnpairRequest(p::UnpairRequest {
             reason: "removed on the computer".into(),
@@ -349,21 +351,42 @@ pub async fn run_one_session(
     apply_payload(resumed, app, link, &phone_id, events, state_path);
     set_connection(link, &phone_id, events, ConnectionStatus::Live, &session.phone_name);
 
-    // The mirror is a projection of the phone's log, so every session pulls what
-    // it missed while disconnected rather than trusting what it already holds.
+    // The mirror is a projection of the phone's log. A cache whose version still
+    // matches the phone needs no backfill, so only the newest page is pulled;
+    // otherwise the whole log is walked, page by page, below.
     client
         .send_payload(to_payload(OutboundRequest::SyncCallLog {
             since_ms: 0,
             max_entries: SYNC_PAGE_SIZE,
+            before_ms: 0,
         }))
         .await?;
 
     // Reading the phone and writing user intent have to share one task, because
     // the socket has a single writer. Commands queued while the link was down are
     // still delivered here, in order.
+    // Wi-Fi power save and router idle timeouts drop a silent TCP connection
+    // without either end noticing, so the link is kept warm and silence past the
+    // dead-peer window is treated as a drop rather than waited on forever.
+    let mut keepalive = tokio::time::interval(std::time::Duration::from_secs(
+        tandem_transport::HEARTBEAT_INTERVAL_SECS,
+    ));
+    keepalive.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let dead_peer = std::time::Duration::from_secs(tandem_transport::DEAD_PEER_TIMEOUT_SECS);
+    let mut heartbeat_seq: u64 = 0;
+
     loop {
         tokio::select! {
             biased;
+
+            _ = keepalive.tick() => {
+                heartbeat_seq += 1;
+                client
+                    .send_payload(Payload::Heartbeat(tandem_proto::Heartbeat {
+                        seq: heartbeat_seq,
+                    }))
+                    .await?;
+            }
 
             request = commands.recv() => {
                 let Some(request) = request else {
@@ -372,8 +395,10 @@ pub async fn run_one_session(
                 client.send_payload(to_payload(request)).await?;
             }
 
-            payload = client.next_payload() => {
-                let payload = payload?;
+            payload = tokio::time::timeout(dead_peer, client.next_payload()) => {
+                // A peer that has said nothing for the dead-peer window is gone,
+                // even though the socket still looks open.
+                let payload = payload.map_err(|_| TransportError::PeerSilent)??;
                 let revoked = matches!(payload, Payload::RevokedEvent(_));
 
                 // A nudge carries no rows, so it has to be answered with a pull
@@ -390,8 +415,23 @@ pub async fn run_one_session(
                         .send_payload(to_payload(OutboundRequest::SyncCallLog {
                             since_ms: since,
                             max_entries: SYNC_PAGE_SIZE,
+                            before_ms: 0,
                         }))
                         .await?;
+                }
+
+                // Paging happens here rather than inside apply_payload, because
+                // only this task may write to the socket.
+                if let Payload::CallLogSyncResponse(response) = &payload {
+                    if let Some(before_ms) = next_page_bound(app, &phone_id, response) {
+                        client
+                            .send_payload(to_payload(OutboundRequest::SyncCallLog {
+                                since_ms: 0,
+                                max_entries: SYNC_PAGE_SIZE,
+                                before_ms,
+                            }))
+                            .await?;
+                    }
                 }
 
                 apply_payload(payload, app, link, &phone_id, events, state_path);
@@ -407,6 +447,43 @@ pub async fn run_one_session(
             }
         }
     }
+}
+
+/// Where the next backfill page should stop, or None when the walk is finished.
+///
+/// The phone answers newest-first, so the oldest row just received is the upper
+/// bound for the next request. Paging stops at the retention bound, since rows
+/// beyond it would be trimmed the moment they arrived and the walk would never
+/// terminate.
+fn next_page_bound(
+    app: &SharedApp,
+    phone_id: &str,
+    response: &tandem_proto::CallLogSyncResponse,
+) -> Option<i64> {
+    if !response.has_more {
+        return None;
+    }
+
+    let oldest = response
+        .entries
+        .iter()
+        .map(|entry| entry.started_at_ms)
+        .min()?;
+    if oldest <= 0 {
+        return None;
+    }
+
+    let held = app
+        .lock()
+        .expect("app mutex poisoned")
+        .store_ref()
+        .call_log(phone_id)
+        .len();
+    if held + response.entries.len() >= crate::store::MIRROR_MAX_ENTRIES {
+        return None;
+    }
+
+    Some(oldest)
 }
 
 /// Discards the persisted pairing after the phone revoked this desktop.

@@ -70,6 +70,7 @@ impl CallController {
                     OutboundRequest::SyncCallLog {
                         since_ms: 0,
                         max_entries: 200,
+                        before_ms: 0,
                     },
                 )]
             }
