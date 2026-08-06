@@ -5,7 +5,7 @@
 
 use std::time::Duration;
 
-use tandem_core::events::{ControllerOutput, PhoneEvent};
+use tandem_core::events::{ControllerOutput, OutboundRequest, PhoneEvent};
 use tandem_core::model::{AudioRoute, Call, CallDirection, CallSnapshot, CallState, StateVersion};
 use tandem_crypto::IdentityCredentials;
 use tandem_ipc::api::{ConnectionStatus, IpcEvent};
@@ -19,12 +19,34 @@ use tandem_transport::tls::{client_config, PinSource};
 use crate::ipc_service::{SharedApp, SharedLink};
 use crate::store::Store;
 
-/// Where the phone lives and how to prove it is the right one.
+/// Where the phone lives and how to prove it is the right one. An empty `host`
+/// means "find it on the LAN": a phone's DHCP lease changes, so a paired phone is
+/// located by device id rather than remembered by address.
 #[derive(Debug, Clone)]
 pub struct PhoneEndpoint {
+    pub device_id: String,
     pub host: String,
     pub port: u16,
     pub pin: PinSource,
+}
+
+/// How long each attempt spends looking for the paired phone before backing off.
+pub const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Resolves the address to dial for this attempt. Discovery is only a hint; the
+/// pinned-key handshake is still what decides whether the peer is the phone.
+async fn resolve_endpoint(endpoint: &PhoneEndpoint) -> Result<(String, u16), TransportError> {
+    if !endpoint.host.is_empty() {
+        return Ok((endpoint.host.clone(), endpoint.port));
+    }
+
+    tandem_transport::discovery::find_paired_phone(&endpoint.device_id, DISCOVERY_TIMEOUT)
+        .await?
+        .map(|phone| (phone.host, phone.port))
+        .ok_or_else(|| TransportError::ConnectFailed {
+            endpoint: endpoint.device_id.clone(),
+            reason: "the paired phone is not advertising on this network".into(),
+        })
 }
 
 /// Outcome of one connection attempt, so the supervisor can decide whether to
@@ -60,10 +82,11 @@ pub async fn connect_once(
         .map_err(|e| TransportError::TlsHandshake(e.to_string()))?;
 
     let tls = client_config(&endpoint.pin, chain, key)?;
+    let (host, port) = resolve_endpoint(endpoint).await?;
 
     WsTransportClient::connect(
-        &endpoint.host,
-        endpoint.port,
+        &host,
+        port,
         tls,
         ClientIdentity {
             device_id: credentials.identity.device_id.clone(),
@@ -73,6 +96,97 @@ pub async fn connect_once(
         next_message_id,
     )
     .await
+}
+
+/// Commands travelling from the UI to the phone. The IPC service validates and
+/// enqueues; the supervisor owns the socket and is the only thing that writes.
+pub type CommandSender = tokio::sync::mpsc::UnboundedSender<OutboundRequest>;
+pub type CommandReceiver = tokio::sync::mpsc::UnboundedReceiver<OutboundRequest>;
+
+/// The queue between the UI and whichever session is current. Starting a session
+/// takes a fresh receiver: intent queued for a session that has since been torn
+/// down must not fire against a different phone.
+pub struct CommandBus {
+    sender: std::sync::Mutex<CommandSender>,
+}
+
+impl CommandBus {
+    pub fn new() -> (std::sync::Arc<Self>, CommandReceiver) {
+        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+        (
+            std::sync::Arc::new(Self {
+                sender: std::sync::Mutex::new(sender),
+            }),
+            receiver,
+        )
+    }
+
+    pub fn send(&self, request: OutboundRequest) -> Result<(), ()> {
+        self.sender
+            .lock()
+            .expect("command bus poisoned")
+            .send(request)
+            .map_err(|_| ())
+    }
+
+    /// Replaces the queue and hands the reading end to a new session.
+    pub fn reset(&self) -> CommandReceiver {
+        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+        *self.sender.lock().expect("command bus poisoned") = sender;
+        receiver
+    }
+}
+
+/// Turns a validated domain request into the frame the phone expects. The domain
+/// never touches generated types, so the conversion belongs here (ADR-0009).
+pub fn to_payload(request: OutboundRequest) -> Payload {
+    use tandem_proto as p;
+
+    match request {
+        OutboundRequest::Dial { number, sim_slot } => {
+            Payload::DialRequest(p::DialRequest { number, sim_slot })
+        }
+        OutboundRequest::Answer { call_id } => Payload::AnswerRequest(p::AnswerRequest { call_id }),
+        OutboundRequest::Reject { call_id } => Payload::RejectRequest(p::RejectRequest { call_id }),
+        OutboundRequest::End { call_id } => Payload::EndRequest(p::EndRequest { call_id }),
+        OutboundRequest::SetMuted { muted } => Payload::MuteRequest(p::MuteRequest { muted }),
+        OutboundRequest::Hold { call_id } => Payload::HoldRequest(p::HoldRequest { call_id }),
+        OutboundRequest::Unhold { call_id } => {
+            Payload::UnholdRequest(p::UnholdRequest { call_id })
+        }
+        OutboundRequest::Merge {
+            call_id,
+            other_call_id,
+        } => Payload::MergeRequest(p::MergeRequest {
+            call_id,
+            other_call_id,
+        }),
+        OutboundRequest::SendDtmf { call_id, digits } => {
+            Payload::SendDtmfRequest(p::SendDtmfRequest { call_id, digits })
+        }
+        OutboundRequest::AudioRoute {
+            route,
+            bt_device_address,
+        } => Payload::AudioRouteRequest(p::AudioRouteRequest {
+            route: match route {
+                AudioRoute::Earpiece => p::AudioRoute::Earpiece as i32,
+                AudioRoute::Speaker => p::AudioRoute::Speaker as i32,
+                AudioRoute::WiredHeadset => p::AudioRoute::WiredHeadset as i32,
+                AudioRoute::Bluetooth => p::AudioRoute::Bluetooth as i32,
+            },
+            bt_device_address,
+        }),
+        OutboundRequest::SyncCallLog {
+            since_ms,
+            max_entries,
+        } => Payload::CallLogSyncRequest(p::CallLogSyncRequest {
+            since_ms,
+            max_entries,
+        }),
+        OutboundRequest::Unpair => Payload::UnpairRequest(p::UnpairRequest {
+            reason: "removed on the computer".into(),
+        }),
+    }
 }
 
 /// Builds the resume cursor from what the desktop last saw, so the phone can
@@ -203,9 +317,11 @@ pub async fn run_one_session(
     app: &SharedApp,
     link: &SharedLink,
     events: &EventPublisher,
+    commands: &mut CommandReceiver,
+    state_path: &std::path::Path,
 ) -> Result<(), TransportError> {
     let next_id = { app.lock().expect("app mutex poisoned").next_message_id() };
-    set_connection(link, ConnectionStatus::Connecting, "");
+    set_connection(link, events, ConnectionStatus::Connecting, "");
 
     let mut client = connect_once(endpoint, credentials, next_id).await?;
     let session = client.session().clone();
@@ -216,7 +332,7 @@ pub async fn run_one_session(
         let mut guard = app.lock().expect("app mutex poisoned");
         guard.adopt_emergency_numbers(session.emergency_numbers.clone());
     }
-    set_connection(link, ConnectionStatus::Resuming, &session.phone_name);
+    set_connection(link, events, ConnectionStatus::Resuming, &session.phone_name);
 
     let cursor = {
         let mut guard = app.lock().expect("app mutex poisoned");
@@ -225,23 +341,124 @@ pub async fn run_one_session(
     };
 
     let resumed = client.resume(cursor).await?;
-    apply_payload(resumed, app, events);
-    set_connection(link, ConnectionStatus::Live, &session.phone_name);
+    apply_payload(resumed, app, link, events, state_path);
+    set_connection(link, events, ConnectionStatus::Live, &session.phone_name);
 
+    // The mirror is a projection of the phone's log, so every session pulls what
+    // it missed while disconnected rather than trusting what it already holds.
+    client
+        .send_payload(to_payload(OutboundRequest::SyncCallLog {
+            since_ms: 0,
+            max_entries: SYNC_PAGE_SIZE,
+        }))
+        .await?;
+
+    // Reading the phone and writing user intent have to share one task, because
+    // the socket has a single writer. Commands queued while the link was down are
+    // still delivered here, in order.
     loop {
-        let payload = client.next_payload().await?;
-        let revoked = matches!(payload, Payload::RevokedEvent(_));
-        apply_payload(payload, app, events);
+        tokio::select! {
+            biased;
 
-        if revoked {
-            set_connection(link, ConnectionStatus::Terminated, &session.phone_name);
-            return Err(TransportError::Revoked("unpaired on the phone".into()));
+            request = commands.recv() => {
+                let Some(request) = request else {
+                    return Err(TransportError::Closed);
+                };
+                client.send_payload(to_payload(request)).await?;
+            }
+
+            payload = client.next_payload() => {
+                let payload = payload?;
+                let revoked = matches!(payload, Payload::RevokedEvent(_));
+
+                // A nudge carries no rows, so it has to be answered with a pull
+                // before the desktop's history is accurate again.
+                if let Payload::CallLogChangedEvent(_) = &payload {
+                    let since = { app.lock().expect("app mutex poisoned").store().cursor().newest_entry_ms };
+                    client
+                        .send_payload(to_payload(OutboundRequest::SyncCallLog {
+                            since_ms: since,
+                            max_entries: SYNC_PAGE_SIZE,
+                        }))
+                        .await?;
+                }
+
+                apply_payload(payload, app, link, events, state_path);
+
+                if revoked {
+                    // The phone dropped this desktop, so the stored pairing is
+                    // dead: keeping it would leave the UI offering a phone that
+                    // will refuse every handshake from now on.
+                    forget_phone(app, state_path);
+                    set_connection(link, events, ConnectionStatus::Idle, "");
+                    return Err(TransportError::Revoked("unpaired on the phone".into()));
+                }
+            }
         }
     }
 }
 
+/// Discards the persisted pairing after the phone revoked this desktop.
+fn forget_phone(app: &SharedApp, state_path: &std::path::Path) {
+    let mut guard = app.lock().expect("app mutex poisoned");
+    guard.store().unpair();
+    let _ = guard.store().save(state_path);
+}
+
+/// How many call-log rows to pull per request; the phone caps at 200.
+pub const SYNC_PAGE_SIZE: u32 = 200;
+
 /// Applies one inbound payload to the mirror and tells the UI what changed.
-fn apply_payload(payload: Payload, app: &SharedApp, events: &EventPublisher) {
+fn apply_payload(
+    payload: Payload,
+    app: &SharedApp,
+    link: &SharedLink,
+    events: &EventPublisher,
+    state_path: &std::path::Path,
+) {
+    // The device list is link state, not call state: it survives having no call
+    // and is what the UI's route picker is built from.
+    if let Payload::AudioDevicesEvent(event) = &payload {
+        let devices: Vec<tandem_ipc::api::AudioDeviceView> = event
+            .devices
+            .iter()
+            .map(|device| tandem_ipc::api::AudioDeviceView {
+                route: ipc_route(device.route),
+                bt_device_address: device.bt_device_address.clone(),
+                name: device.name.clone(),
+            })
+            .collect();
+
+        {
+            let mut guard = link.lock().expect("link mutex poisoned");
+            guard.audio_devices = devices.clone();
+            guard.active_bt_device_address = event.active_bt_device_address.clone();
+        }
+        events.publish(IpcEvent::AudioDevicesChanged {
+            devices,
+            active_route: ipc_route(event.active_route),
+            active_bt_device_address: event.active_bt_device_address.clone(),
+        });
+        return;
+    }
+
+    // Call-log pages are not controller events: they land in the store the UI
+    // reads its history from.
+    if let Payload::CallLogSyncResponse(response) = payload {
+        let rows: Vec<tandem_core::model::CallLogRow> =
+            response.entries.into_iter().map(call_log_row).collect();
+        {
+            let mut guard = app.lock().expect("app mutex poisoned");
+            guard.store().merge_call_log(rows);
+            guard.store().set_call_log_version(response.log_version);
+            let _ = guard.store().save(state_path);
+        }
+        events.publish(IpcEvent::HistoryChanged {
+            log_version: response.log_version,
+        });
+        return;
+    }
+
     let Some(event) = to_phone_event(payload) else {
         return;
     };
@@ -257,6 +474,29 @@ fn apply_payload(payload: Payload, app: &SharedApp, events: &EventPublisher) {
                 calls: snapshot.calls.iter().map(call_view).collect(),
             });
         }
+    }
+}
+
+/// The wire route enum as the UI's enum. Unknown values fall back to the
+/// earpiece, which every phone has.
+fn ipc_route(value: i32) -> tandem_ipc::api::AudioRoute {
+    use tandem_proto::AudioRoute as P;
+    match P::try_from(value) {
+        Ok(P::Speaker) => tandem_ipc::api::AudioRoute::Speaker,
+        Ok(P::WiredHeadset) => tandem_ipc::api::AudioRoute::WiredHeadset,
+        Ok(P::Bluetooth) => tandem_ipc::api::AudioRoute::Bluetooth,
+        _ => tandem_ipc::api::AudioRoute::Earpiece,
+    }
+}
+
+fn call_log_row(entry: tandem_proto::CallLogEntry) -> tandem_core::model::CallLogRow {
+    tandem_core::model::CallLogRow {
+        entry_id: entry.entry_id,
+        number: entry.number,
+        display_name: entry.display_name,
+        started_at_ms: entry.started_at_ms,
+        duration_seconds: entry.duration_seconds,
+        sim_slot: entry.sim_slot,
     }
 }
 
@@ -282,12 +522,22 @@ fn call_view(call: &Call) -> tandem_ipc::api::CallView {
     }
 }
 
-fn set_connection(link: &SharedLink, connection: ConnectionStatus, phone_name: &str) {
-    let mut guard = link.lock().expect("link mutex poisoned");
-    guard.connection = Some(connection);
-    if !phone_name.is_empty() {
-        guard.phone_name = phone_name.to_string();
+/// Records the link state and tells the UI, so a desktop that comes up after the
+/// window was opened does not sit showing a stale "not connected".
+fn set_connection(
+    link: &SharedLink,
+    events: &EventPublisher,
+    connection: ConnectionStatus,
+    phone_name: &str,
+) {
+    {
+        let mut guard = link.lock().expect("link mutex poisoned");
+        guard.connection = Some(connection);
+        if !phone_name.is_empty() {
+            guard.phone_name = phone_name.to_string();
+        }
     }
+    events.publish(IpcEvent::ConnectionChanged { connection });
 }
 
 /// Keeps a session alive across drops. A transient failure backs off and retries;
@@ -298,15 +548,26 @@ pub async fn supervise(
     app: SharedApp,
     link: SharedLink,
     events: EventPublisher,
+    mut commands: CommandReceiver,
+    state_path: std::path::PathBuf,
 ) {
     let mut backoff = Backoff::new();
 
     loop {
-        match run_one_session(&endpoint, &credentials, &app, &link, &events).await {
+        match run_one_session(
+            &endpoint,
+            &credentials,
+            &app,
+            &link,
+            &events,
+            &mut commands,
+            &state_path,
+        )
+        .await {
             Ok(()) => backoff.reset(),
             Err(error) => match classify(&error) {
                 AttemptOutcome::Fatal(fatal) => {
-                    set_connection(&link, ConnectionStatus::Terminated, "");
+                    set_connection(&link, &events, ConnectionStatus::Terminated, "");
                     events.publish(IpcEvent::Revoked {
                         reason: fatal.to_string(),
                     });
@@ -316,10 +577,7 @@ pub async fn supervise(
             },
         }
 
-        set_connection(&link, ConnectionStatus::Backoff, "");
-        events.publish(IpcEvent::ConnectionChanged {
-            connection: ConnectionStatus::Backoff,
-        });
+        set_connection(&link, &events, ConnectionStatus::Backoff, "");
         tokio::time::sleep(next_delay(&mut backoff, clock_entropy())).await;
     }
 }

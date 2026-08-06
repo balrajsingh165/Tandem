@@ -246,6 +246,8 @@ fn harness(
 
     (
         PhoneEndpoint {
+            // A fixed host bypasses discovery, keeping the test to a real socket.
+            device_id: "phone-under-test".into(),
             host: "127.0.0.1".into(),
             port,
             pin: tandem_transport::tls::PinSource::Paired(SpkiFingerprint::from_spki_der(spki)),
@@ -266,7 +268,20 @@ async fn the_mirror_tracks_phone_truth() {
     let session = tokio::spawn({
         let app = app.clone();
         let link = link.clone();
-        async move { session_loop::run_one_session(&endpoint, &credentials, &app, &link, &events).await }
+        async move {
+            let (_bus, mut commands) = session_loop::CommandBus::new();
+            let state = std::env::temp_dir().join("tandem-test-state.json");
+            session_loop::run_one_session(
+                &endpoint,
+                &credentials,
+                &app,
+                &link,
+                &events,
+                &mut commands,
+                &state,
+            )
+            .await
+        }
     });
 
     tokio::time::sleep(std::time::Duration::from_millis(600)).await;
@@ -298,7 +313,20 @@ async fn the_link_reaches_live_and_names_the_phone() {
     let session = tokio::spawn({
         let app = app.clone();
         let link = link.clone();
-        async move { session_loop::run_one_session(&endpoint, &credentials, &app, &link, &events).await }
+        async move {
+            let (_bus, mut commands) = session_loop::CommandBus::new();
+            let state = std::env::temp_dir().join("tandem-test-state.json");
+            session_loop::run_one_session(
+                &endpoint,
+                &credentials,
+                &app,
+                &link,
+                &events,
+                &mut commands,
+                &state,
+            )
+            .await
+        }
     });
 
     tokio::time::sleep(std::time::Duration::from_millis(600)).await;
@@ -321,7 +349,20 @@ async fn the_session_emergency_list_arms_the_local_pre_check() {
     let session = tokio::spawn({
         let app = app.clone();
         let link = link.clone();
-        async move { session_loop::run_one_session(&endpoint, &credentials, &app, &link, &events).await }
+        async move {
+            let (_bus, mut commands) = session_loop::CommandBus::new();
+            let state = std::env::temp_dir().join("tandem-test-state.json");
+            session_loop::run_one_session(
+                &endpoint,
+                &credentials,
+                &app,
+                &link,
+                &events,
+                &mut commands,
+                &state,
+            )
+            .await
+        }
     });
 
     tokio::time::sleep(std::time::Duration::from_millis(600)).await;
@@ -345,12 +386,15 @@ async fn revocation_stops_the_supervisor() {
     let (endpoint, credentials, app, link) = harness(port, &spki);
     let events = EventPublisher::new();
 
+    let (_bus, commands) = session_loop::CommandBus::new();
     let supervisor = tokio::spawn(session_loop::supervise(
         endpoint,
         credentials,
         app,
         link.clone(),
         events,
+        commands,
+        std::env::temp_dir().join("tandem-test-state.json"),
     ));
 
     tokio::time::timeout(std::time::Duration::from_secs(5), supervisor)

@@ -77,25 +77,36 @@ async fn run(config: Config) -> ExitCode {
     let shared_app: SharedApp = std::sync::Arc::new(std::sync::Mutex::new(app));
     let link: SharedLink = std::sync::Arc::new(std::sync::Mutex::new(LinkState::default()));
     let events = EventPublisher::new();
+    let session: crate::ipc_service::SessionTask = Default::default();
+    let (commands, command_receiver) = session_loop::CommandBus::new();
     let server = IpcServer::new(
-        DaemonIpcService::new(shared_app.clone(), link.clone()).with_pairing(PairingLauncher {
-            credentials: identity.clone(),
-            events: events.clone(),
-            app: shared_app.clone(),
-            state_path: state_path.clone(),
-        }),
+        DaemonIpcService::new(shared_app.clone(), link.clone(), commands.clone())
+            .with_pairing(PairingLauncher {
+                credentials: identity.clone(),
+                events: events.clone(),
+                app: shared_app.clone(),
+                link: link.clone(),
+                session: session.clone(),
+                commands: commands.clone(),
+                state_path: state_path.clone(),
+                phone_port: config.phone_port,
+            }),
         events.clone(),
     );
 
     // The supervisor only runs once a phone is paired; until then the daemon
     // still serves the UI so pairing can be started from it.
     if let Some(phone) = paired_phone(&config, &shared_app).or_else(|| configured_phone(&config)) {
-        tokio::spawn(session_loop::supervise(
-            phone,
-            identity.clone(),
-            shared_app.clone(),
-            link.clone(),
-            events.clone(),
+        *session.lock().expect("session mutex poisoned") = Some(tokio::spawn(
+            session_loop::supervise(
+                phone,
+                identity.clone(),
+                shared_app.clone(),
+                link.clone(),
+                events.clone(),
+                command_receiver,
+                state_path.clone(),
+            ),
         ));
     }
 
@@ -179,10 +190,10 @@ fn paired_phone(config: &Config, app: &SharedApp) -> Option<PhoneEndpoint> {
     }?;
 
     let fingerprint = tandem_crypto::SpkiFingerprint::from_base64url(&stored.spki_sha256).ok()?;
-    let host = config.phone_host.clone()?;
 
     Some(PhoneEndpoint {
-        host,
+        device_id: stored.device_id.clone(),
+        host: config.phone_host.clone().unwrap_or_default(),
         port: config.phone_port,
         pin: tandem_transport::tls::PinSource::Paired(fingerprint),
     })
@@ -196,6 +207,7 @@ fn configured_phone(config: &Config) -> Option<PhoneEndpoint> {
     let fingerprint = tandem_crypto::SpkiFingerprint::from_base64url(pin).ok()?;
 
     Some(PhoneEndpoint {
+        device_id: String::new(),
         host,
         port: config.phone_port,
         pin: tandem_transport::tls::PinSource::Paired(fingerprint),

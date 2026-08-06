@@ -68,6 +68,12 @@ impl App {
         &mut self.store
     }
 
+    /// Read-only view for callers that only project the mirror, so they need no
+    /// mutable borrow of the whole app.
+    pub fn store_ref(&self) -> &Store {
+        &self.store
+    }
+
     /// Message ids continue across sessions so the phone can deduplicate a
     /// post-reconnect retry (docs/06 framing rules).
     pub fn next_message_id(&self) -> u64 {
