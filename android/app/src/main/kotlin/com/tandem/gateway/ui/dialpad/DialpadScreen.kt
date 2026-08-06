@@ -1,31 +1,56 @@
 /**
- * Compose dialpad for placing calls from the handset, including numbers
- * prefilled by DialIntentRouter. Emergency numbers dial normally here — the
- * handset is the sanctioned emergency path (ADR-0008).
+ * Compose dialpad on the handset: number entry, delete, and place-call, prefilled
+ * from a tel: intent when Tandem is opened as the dialer. Fully usable with no
+ * desktop paired.
  */
 package com.tandem.gateway.ui.dialpad
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tandem.gateway.R
+
+/** Letters under the digit: the muscle memory every phone dialer trains. */
+private val SUBTITLES = mapOf(
+    "2" to "ABC",
+    "3" to "DEF",
+    "4" to "GHI",
+    "5" to "JKL",
+    "6" to "MNO",
+    "7" to "PQRS",
+    "8" to "TUV",
+    "9" to "WXYZ",
+    "0" to "+",
+)
 
 private val KEYS = listOf(
     listOf("1", "2", "3"),
@@ -45,52 +70,131 @@ fun DialpadScreen(
 
     LaunchedEffect(initialNumber) { viewModel.setInitial(initialNumber) }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background,
     ) {
-        TextButton(onClick = onBack) { Text("Back") }
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .padding(horizontal = 20.dp, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Row(Modifier.fillMaxWidth()) {
+                TextButton(onClick = onBack) { Text("← Back") }
+            }
 
-        Text(
-            text = dialString,
-            style = MaterialTheme.typography.headlineMedium,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth(),
-        )
+            Spacer(Modifier.weight(0.5f))
 
-        failure?.let {
-            Text(text = it, color = MaterialTheme.colorScheme.error)
-        }
+            // The readout is the point of the screen, so it gets the room rather
+            // than being one line among many.
+            Text(
+                text = dialString.ifEmpty { stringResource(R.string.dialpad_hint) },
+                style = MaterialTheme.typography.headlineMedium,
+                fontSize = if (dialString.length > 14) 24.sp else 32.sp,
+                color = if (dialString.isEmpty()) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                modifier = Modifier.fillMaxWidth(),
+            )
 
-        KEYS.forEach { row ->
-            Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp)) {
-                row.forEach { key ->
-                    OutlinedButton(
-                        onClick = { viewModel.append(key) },
-                        modifier = Modifier.weight(1f),
+            failure?.let {
+                Spacer(Modifier.size(10.dp))
+                Text(
+                    text = it,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
+                )
+            }
+
+            Spacer(Modifier.weight(1f))
+
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                KEYS.forEach { row ->
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        Text(key, style = MaterialTheme.typography.titleLarge)
+                        row.forEach { key ->
+                            DialKey(
+                                key = key,
+                                sub = SUBTITLES[key].orEmpty(),
+                                onClick = { viewModel.append(key) },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
                     }
                 }
             }
-        }
 
-        Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(
-                onClick = viewModel::backspace,
-                enabled = dialString.isNotEmpty(),
-                modifier = Modifier.weight(1f),
+            Spacer(Modifier.size(16.dp))
+
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(stringResource(R.string.dialpad_delete))
+                Spacer(Modifier.weight(1f))
+                Button(
+                    onClick = { viewModel.call() },
+                    enabled = dialString.isNotEmpty(),
+                    modifier = Modifier
+                        .weight(2f)
+                        .height(58.dp),
+                    shape = CircleShape,
+                ) {
+                    Text(
+                        text = stringResource(R.string.dialpad_call),
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+                // Only shown when there is something to delete, so the row stays
+                // balanced on an empty pad.
+                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    if (dialString.isNotEmpty()) {
+                        TextButton(onClick = viewModel::backspace) {
+                            Text(stringResource(R.string.dialpad_delete))
+                        }
+                    }
+                }
             }
-            Button(
-                onClick = { viewModel.call() },
-                enabled = dialString.isNotEmpty(),
-                modifier = Modifier.weight(1f),
-            ) {
-                Text(stringResource(R.string.dialpad_call))
+
+            Spacer(Modifier.size(6.dp))
+        }
+    }
+}
+
+@Composable
+private fun DialKey(
+    key: String,
+    sub: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier.aspectRatio(1.35f),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        onClick = onClick,
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text(text = key, fontSize = 24.sp, fontWeight = FontWeight.Medium)
+            if (sub.isNotEmpty()) {
+                Text(
+                    text = sub,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }
