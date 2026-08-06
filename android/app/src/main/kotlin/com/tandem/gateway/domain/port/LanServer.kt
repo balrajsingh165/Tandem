@@ -23,6 +23,9 @@ interface LanServer {
     /** Nudges desktops that the OS call log changed. */
     suspend fun broadcastCallLogChanged(logVersion: Long)
 
+    /** Publishes the audio targets this phone can route a call to. */
+    suspend fun broadcastAudioDevices()
+
     /** Ends a desktop's session immediately after telling it why (docs/07). */
     suspend fun revokeSession(deviceId: String, reason: String)
 }

@@ -33,6 +33,18 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
+/**
+ * Who still has to agree for a candidate that passed its token check.
+ *
+ * A window opened by scanning a computer's screen needs no second tap on this
+ * phone — the scan was the consent here — but the person at the computer has not
+ * been asked yet, so the pairing waits for their answer over the wire.
+ */
+enum class CandidacyOutcome {
+    NeedsDesktopApproval,
+    NeedsUserConfirmation,
+}
+
 /** A desktop that presented a valid token and is awaiting the user's verdict. */
 data class PairingCandidate(
     val desktopName: String,
@@ -153,7 +165,7 @@ class PairingManagerImpl @Inject constructor(
         token: String,
         presented: PairingCandidate,
         shortCode: String?,
-    ): Result<Unit> = mutex.withLock {
+    ): Result<CandidacyOutcome> = mutex.withLock {
         val active = session ?: return Result.failure(PairingError.WindowBusy)
         if (candidate != null) return Result.failure(PairingError.WindowBusy)
 
@@ -174,13 +186,21 @@ class PairingManagerImpl @Inject constructor(
 
         candidate = presented
         verdict = CompletableDeferred()
-        _state.value = PairingWindowState.AwaitingConfirmation(
-            desktopName = presented.desktopName,
-            desktopPlatform = presented.desktopPlatform,
-            fingerprint = presented.spkiSha256,
-            shortCode = shortCode,
-        )
-        Result.success(Unit)
+
+        // A scanned window never prompts here; showing Allow/Deny on both screens
+        // is what made the flow ambiguous.
+        return if (expectedFingerprint != null) {
+            _state.value = PairingWindowState.AwaitingDesktopApproval(presented.desktopName)
+            Result.success(CandidacyOutcome.NeedsDesktopApproval)
+        } else {
+            _state.value = PairingWindowState.AwaitingConfirmation(
+                desktopName = presented.desktopName,
+                desktopPlatform = presented.desktopPlatform,
+                fingerprint = presented.spkiSha256,
+                shortCode = shortCode,
+            )
+            Result.success(CandidacyOutcome.NeedsUserConfirmation)
+        }
     }
 
     /** Suspends until the user taps allow or deny, or the window is torn down. */

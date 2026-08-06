@@ -8,6 +8,7 @@ package com.tandem.gateway.transport
 import com.tandem.gateway.domain.model.AudioRouteTarget
 import com.tandem.gateway.domain.model.CallSnapshot
 import com.tandem.gateway.domain.port.MediaRouteError
+import com.tandem.gateway.domain.port.PairedDeviceRepository
 import com.tandem.gateway.domain.port.TelecomError
 import com.tandem.gateway.domain.usecase.AnswerCall
 import com.tandem.gateway.domain.usecase.CallAlreadyHandled
@@ -42,6 +43,7 @@ class ControlPlaneRouter @Inject constructor(
     private val sendDtmf: SendDtmf,
     private val requestAudioRoute: RequestAudioRoute,
     private val syncCallLog: SyncCallLog,
+    private val pairedDeviceRepository: PairedDeviceRepository,
     private val codec: EnvelopeCodec,
 ) {
     suspend fun handle(
@@ -125,6 +127,14 @@ class ControlPlaneRouter @Inject constructor(
                         )
                         .build()
                 }
+
+            // The desktop forgot this phone, so the phone forgets it back: leaving
+            // the pin in place would keep admitting a computer the user removed.
+            // Revoked before the reply, so a reconnect during teardown still fails
+            // the pinned-key lookup.
+            Envelope.PayloadCase.UNPAIR_REQUEST ->
+                pairedDeviceRepository.revoke(session.deviceId)
+                    .map { ackEnvelope(envelope, ErrorCode.ERROR_CODE_OK) }
 
             else -> return ack(envelope, ErrorCode.ERROR_CODE_INTERNAL)
         }

@@ -18,8 +18,14 @@ import com.tandem.gateway.domain.port.ServerStatus
 import com.tandem.gateway.domain.port.SessionInfo
 import com.tandem.gateway.domain.port.TransportError
 import com.tandem.gateway.domain.usecase.ObserveCallState
+import com.tandem.gateway.domain.usecase.PairDesktop
+import com.tandem.gateway.pairing.CandidacyOutcome
 import com.tandem.gateway.pairing.PairingCandidate
 import com.tandem.gateway.pairing.PairingManagerImpl
+import com.tandem.gateway.domain.model.AudioRoute
+import com.tandem.gateway.domain.port.CallMediaProvider
+import com.tandem.gateway.proto.v1.AudioDevice
+import com.tandem.gateway.proto.v1.AudioDevicesEvent
 import com.tandem.gateway.proto.v1.CallLogChangedEvent
 import com.tandem.gateway.proto.v1.CallStateChangedEvent
 import com.tandem.gateway.proto.v1.Envelope
@@ -54,6 +60,9 @@ class LanServerImpl @Inject constructor(
     private val identityStore: IdentityStore,
     private val controlPlaneRouter: ControlPlaneRouter,
     private val pairingManager: PairingManagerImpl,
+    private val pairDesktop: PairDesktop,
+    private val telecomBridge: com.tandem.gateway.telecom.TelecomBridgeImpl,
+    private val callMediaProvider: CallMediaProvider,
     private val observeCallState: ObserveCallState,
     private val callLogRepository: CallLogRepository,
     private val emergencyNumberSource: EmergencyNumberSource,
@@ -142,7 +151,7 @@ class LanServerImpl @Inject constructor(
             // An unknown key that got past TLS can only be a provisional pairing
             // peer, and pairing never yields a control session on this connection.
             if (first.hasPairingRequest()) {
-                servePairing(first, peerCert, fingerprint, output)
+                servePairing(first, peerCert, fingerprint, input, output)
                 socket.close()
                 return
             }
@@ -183,6 +192,7 @@ class LanServerImpl @Inject constructor(
             }
 
             latestSnapshot?.let { active.send(snapshotEnvelope(it)) }
+            active.send(audioDevicesEnvelope())
 
             pump(active, input)
         } catch (error: Exception) {
@@ -205,6 +215,7 @@ class LanServerImpl @Inject constructor(
         envelope: Envelope,
         peerCert: X509Certificate,
         fingerprint: String,
+        input: java.io.InputStream,
         output: java.io.OutputStream,
     ) {
         val request = envelope.pairingRequest
@@ -231,12 +242,13 @@ class LanServerImpl @Inject constructor(
             presented = candidate,
             shortCode = null,
         )
-        if (presented.isFailure) {
+        val outcome = presented.getOrElse {
             writeDecision(output, envelope.messageId, ErrorCode.ERROR_CODE_PAIRING_REJECTED, null)
             return
         }
 
-        // Tell the desktop to show its progress state while the user decides.
+        // Either way the desktop is told the token was accepted; what differs is
+        // who answers next.
         writeFrame(
             output,
             Envelope.newBuilder()
@@ -247,8 +259,23 @@ class LanServerImpl @Inject constructor(
                 .build(),
         )
 
-        val decided = pairingManager.awaitVerdict()
-        val desktop = decided.getOrNull()
+        val desktop = when (outcome) {
+            // The scan was the consent on this phone. The remaining question
+            // belongs to the person at the computer, and their answer arrives here
+            // rather than on this screen.
+            CandidacyOutcome.NeedsDesktopApproval -> {
+                val approval = readApproval(input)
+                if (approval != true) {
+                    pairDesktop.submitDecision(accept = false)
+                    null
+                } else {
+                    pairDesktop.submitDecision(accept = true).getOrNull()
+                }
+            }
+
+            CandidacyOutcome.NeedsUserConfirmation -> pairingManager.awaitVerdict().getOrNull()
+        }
+
         if (desktop == null) {
             writeDecision(output, envelope.messageId, ErrorCode.ERROR_CODE_PAIRING_REJECTED, null)
             return
@@ -258,6 +285,16 @@ class LanServerImpl @Inject constructor(
         // the verdict, so the row has exactly one writer.
         writeDecision(output, envelope.messageId, ErrorCode.ERROR_CODE_OK, desktop.deviceId)
     }
+
+    /**
+     * Waits for the computer's verdict on a scanned pairing. Anything other than a
+     * PairingApproval — including a dropped connection — counts as no, so a
+     * pairing is never committed on silence.
+     */
+    private fun readApproval(input: java.io.InputStream): Boolean? = runCatching {
+        val envelope = codec.decode(WebSocketFraming.readFrame(input).payload)
+        if (envelope.hasPairingApproval()) envelope.pairingApproval.accept else null
+    }.getOrNull()
 
     private suspend fun writeDecision(
         output: java.io.OutputStream,
@@ -348,6 +385,50 @@ class LanServerImpl @Inject constructor(
     override suspend fun broadcastSnapshot(snapshot: CallSnapshot) {
         latestSnapshot = snapshot
         sessionRegistry.broadcast(codec.encode(snapshotEnvelope(snapshot)))
+    }
+
+    /**
+     * Tells every desktop which audio targets this phone can actually use. Only
+     * routes the OS reports as supported are listed, and Bluetooth is expanded
+     * into one entry per connected device so the desktop can name them.
+     */
+    override suspend fun broadcastAudioDevices() {
+        sessionRegistry.broadcast(codec.encode(audioDevicesEnvelope()))
+    }
+
+    private suspend fun audioDevicesEnvelope(): Envelope {
+        val supported = telecomBridge.supportedRoutes.value
+        val builder = AudioDevicesEvent.newBuilder()
+            .setActiveRoute(codec.toProto(telecomBridge.audioRoute.value))
+            .setActiveBtDeviceAddress(telecomBridge.btRouteAddress.value)
+
+        for (route in listOf(AudioRoute.EARPIECE, AudioRoute.SPEAKER, AudioRoute.WIRED_HEADSET)) {
+            if (route in supported) {
+                builder.addDevices(
+                    AudioDevice.newBuilder()
+                        .setRoute(codec.toProto(route))
+                        .setName(route.label())
+                        .build(),
+                )
+            }
+        }
+
+        if (AudioRoute.BLUETOOTH in supported) {
+            for (target in callMediaProvider.availableBluetoothTargets()) {
+                builder.addDevices(
+                    AudioDevice.newBuilder()
+                        .setRoute(codec.toProto(AudioRoute.BLUETOOTH))
+                        .setBtDeviceAddress(target.address)
+                        .setName(target.name)
+                        .build(),
+                )
+            }
+        }
+
+        return Envelope.newBuilder()
+            .setProtocolVersion(EnvelopeCodec.PROTOCOL_VERSION)
+            .setAudioDevicesEvent(builder.build())
+            .build()
     }
 
     override suspend fun broadcastCallLogChanged(logVersion: Long) {

@@ -24,6 +24,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
@@ -102,6 +103,16 @@ class GatewayForegroundService : Service() {
 
         callLogObserver.logVersion
             .onEach { version -> lanServer.broadcastCallLogChanged(version) }
+            .launchIn(scope)
+
+        // The set of audio targets changes with headsets coming and going, and the
+        // desktop can only offer what currently exists.
+        combine(
+            telecomBridge.supportedRoutes,
+            telecomBridge.audioRoute,
+            hfpAgMonitor.connectedHeadsets,
+        ) { _, _, _ -> Unit }
+            .onEach { lanServer.broadcastAudioDevices() }
             .launchIn(scope)
 
         lanServer.connectedSessions

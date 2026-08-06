@@ -100,7 +100,7 @@ class EnvelopeCodec @Inject constructor() {
         CallDirection.OUTGOING -> ProtoCallDirection.CALL_DIRECTION_OUTGOING
     }
 
-    private fun toProto(route: AudioRoute): ProtoAudioRoute = when (route) {
+    fun toProto(route: AudioRoute): ProtoAudioRoute = when (route) {
         AudioRoute.EARPIECE -> ProtoAudioRoute.AUDIO_ROUTE_EARPIECE
         AudioRoute.SPEAKER -> ProtoAudioRoute.AUDIO_ROUTE_SPEAKER
         AudioRoute.WIRED_HEADSET -> ProtoAudioRoute.AUDIO_ROUTE_WIRED_HEADSET

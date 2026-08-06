@@ -25,6 +25,7 @@
     <string name="pairing_scan_again">Scan again</string>
     <string name="pairing_scan_instruction">Point the camera at the code on your computer.</string>
     <string name="pairing_awaiting_desktop">Waiting for %1$s to connect…</string>
+    <string name="pairing_confirm_on_computer">Confirm on %1$s to finish…</string>
     <string name="pairing_manual_instruction">Or enter these details on the computer manually.</string>
     <string name="pairing_expires_in">Code expires in %1$d seconds</string>
     <string name="pairing_confirm_title">Allow this computer?</string>

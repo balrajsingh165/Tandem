@@ -121,6 +121,16 @@ fun PairingScreen(
                 }
             }
 
+            is PairingWindowState.AwaitingDesktopApproval -> {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator()
+                    Text(stringResource(R.string.pairing_confirm_on_computer, current.desktopName))
+                }
+            }
+
             is PairingWindowState.AwaitingDesktop -> {
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),

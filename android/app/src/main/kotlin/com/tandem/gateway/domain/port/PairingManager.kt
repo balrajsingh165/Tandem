@@ -59,6 +59,9 @@ sealed interface PairingWindowState {
     /** Scanned a desktop's code; waiting for that desktop to connect. */
     data class AwaitingDesktop(val desktopName: String) : PairingWindowState
 
+    /** The desktop connected and its code checked out; it must now confirm. */
+    data class AwaitingDesktopApproval(val desktopName: String) : PairingWindowState
+
     /** A desktop presented a valid token; the user must now confirm. */
     data class AwaitingConfirmation(
         val desktopName: String,

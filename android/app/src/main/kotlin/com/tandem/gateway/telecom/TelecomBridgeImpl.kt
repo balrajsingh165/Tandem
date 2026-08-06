@@ -45,6 +45,13 @@ class TelecomBridgeImpl @Inject constructor(
     private val _btRouteAddress = MutableStateFlow("")
     val btRouteAddress: StateFlow<String> = _btRouteAddress.asStateFlow()
 
+    /**
+     * Routes the OS says this call can actually use. Offering a target Telecom
+     * would refuse is worse than not offering it, so the mask is the authority.
+     */
+    private val _supportedRoutes = MutableStateFlow(setOf(AudioRoute.EARPIECE))
+    val supportedRoutes: StateFlow<Set<AudioRoute>> = _supportedRoutes.asStateFlow()
+
     fun onCallAdded(call: TelecomCall, service: InCallService) {
         inCallService = service
         val id = idsByCall.getOrPut(call) { "call-${nextId.getAndIncrement()}" }
@@ -71,6 +78,15 @@ class TelecomBridgeImpl @Inject constructor(
             else -> AudioRoute.EARPIECE
         }
         _btRouteAddress.value = audioState.activeBluetoothDevice?.address.orEmpty()
+
+        val mask = audioState.supportedRouteMask
+        _supportedRoutes.value = buildSet {
+            if (mask and CallAudioState.ROUTE_EARPIECE != 0) add(AudioRoute.EARPIECE)
+            if (mask and CallAudioState.ROUTE_SPEAKER != 0) add(AudioRoute.SPEAKER)
+            if (mask and CallAudioState.ROUTE_WIRED_HEADSET != 0) add(AudioRoute.WIRED_HEADSET)
+            if (mask and CallAudioState.ROUTE_BLUETOOTH != 0) add(AudioRoute.BLUETOOTH)
+            if (isEmpty()) add(AudioRoute.EARPIECE)
+        }
     }
 
     /** Exposes the live service so the media provider can set routes. */

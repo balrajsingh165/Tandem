@@ -10,6 +10,15 @@ enum class AudioRoute {
     SPEAKER,
     WIRED_HEADSET,
     BLUETOOTH,
+    ;
+
+    /** What a desktop shows for this route when no device name applies. */
+    fun label(): String = when (this) {
+        EARPIECE -> "Phone earpiece"
+        SPEAKER -> "Phone speaker"
+        WIRED_HEADSET -> "Wired headset"
+        BLUETOOTH -> "Bluetooth"
+    }
 }
 
 /**
