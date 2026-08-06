@@ -7,6 +7,7 @@ package com.tandem.gateway.ui.incall
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.tandem.gateway.contacts.CallerIdentityResolver
 import com.tandem.gateway.contacts.NumberInsightResolver
 import com.tandem.gateway.domain.model.AudioRoute
 import com.tandem.gateway.domain.model.AudioRouteTarget
@@ -34,6 +35,10 @@ data class InCallUiState(
     val primaryCall: Call? = null,
     /** Offline metadata for a caller with no saved name; blank when known. */
     val callerInsight: String = "",
+    /** Contact photo for the caller, when the address book has one. */
+    val callerPhotoUri: String = "",
+    /** True when the number is also registered on WhatsApp. */
+    val callerOnWhatsApp: Boolean = false,
     val muted: Boolean = false,
     val audioRoute: AudioRoute = AudioRoute.EARPIECE,
     val canMerge: Boolean = false,
@@ -54,6 +59,7 @@ class InCallViewModel @Inject constructor(
     private val sendDtmf: SendDtmf,
     private val requestAudioRoute: RequestAudioRoute,
     private val numberInsightResolver: NumberInsightResolver,
+    private val callerIdentityResolver: CallerIdentityResolver,
 ) : ViewModel() {
 
     private val snapshots: StateFlow<CallSnapshot?> = observeCallState()
@@ -63,6 +69,7 @@ class InCallViewModel @Inject constructor(
         .map { snapshot ->
             val live = snapshot?.calls.orEmpty().filter { !it.isTerminal }
             val primary = live.firstOrNull { it.isRinging } ?: live.firstOrNull()
+            val identity = primary?.let { callerIdentityResolver.identityFor(it.remoteNumber) }
 
             InCallUiState(
                 primaryCall = primary,
@@ -72,6 +79,8 @@ class InCallViewModel @Inject constructor(
                     ?.takeIf { it.remoteDisplayName.isBlank() }
                     ?.let { numberInsightResolver.insightFor(it.remoteNumber)?.summary }
                     .orEmpty(),
+                callerPhotoUri = identity?.photoUri.orEmpty(),
+                callerOnWhatsApp = identity?.onWhatsApp == true,
                 muted = snapshot?.microphoneMuted ?: false,
                 audioRoute = snapshot?.audioRoute ?: AudioRoute.EARPIECE,
                 canMerge = live.size > 1,

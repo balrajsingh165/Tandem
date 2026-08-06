@@ -4,7 +4,7 @@
   refusal copy mandated by docs/08 and ADR-0008.
 -->
 <resources>
-    <string name="app_name">Tandem Gateway</string>
+    <string name="app_name">Tandem Caller</string>
 
     <string name="status_title">Gateway status</string>
     <string name="status_dialer_role_held">Tandem is your phone app</string>
@@ -76,5 +76,6 @@
     <string name="home_no_contacts">No contacts yet.</string>
     <string name="action_message">Message</string>
     <string name="action_whatsapp">WhatsApp</string>
+    <string name="caller_on_whatsapp">On WhatsApp</string>
     <string name="dialpad_delete">Delete</string>
 </resources>
