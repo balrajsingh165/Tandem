@@ -8,9 +8,19 @@
     disabled?: boolean;
     compact?: boolean;
     ondigit: (digit: string) => void;
+    /** Physical Backspace; omitted where deleting makes no sense (DTMF). */
+    onbackspace?: () => void;
+    /** Physical Enter. */
+    onsubmit?: () => void;
   }
 
-  const { disabled = false, compact = false, ondigit }: Props = $props();
+  const {
+    disabled = false,
+    compact = false,
+    ondigit,
+    onbackspace,
+    onsubmit,
+  }: Props = $props();
 
   const keys: Array<[string, string]> = [
     ['1', ''],
@@ -30,10 +40,25 @@
   // Physical keyboard should drive the pad too; this is a desktop app.
   function onKeydown(event: KeyboardEvent) {
     if (disabled) return;
+    // Typing into a field must not also drive the pad.
+    const target = event.target as HTMLElement | null;
+    if (target && /^(INPUT|TEXTAREA)$/.test(target.tagName)) return;
+
     const key = event.key;
-    if (/^[0-9*#]$/.test(key)) {
+    if (/^[0-9*#+]$/.test(key)) {
       ondigit(key);
       pulse(key);
+      return;
+    }
+    if (key === 'Backspace' && onbackspace) {
+      event.preventDefault();
+      onbackspace();
+      pulse('⌫');
+      return;
+    }
+    if (key === 'Enter' && onsubmit) {
+      event.preventDefault();
+      onsubmit();
     }
   }
 

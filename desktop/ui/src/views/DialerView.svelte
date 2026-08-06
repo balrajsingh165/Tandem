@@ -102,7 +102,12 @@
     <p class="failure" role="alert">{failure}</p>
   {/if}
 
-  <DialPad disabled={!$isConnected} ondigit={append} />
+  <DialPad
+    disabled={!$isConnected}
+    ondigit={append}
+    onbackspace={backspace}
+    onsubmit={dial}
+  />
 
   <div class="actions">
     <button type="button" class="ghost" onclick={backspace} disabled={!entry} aria-label="Delete">

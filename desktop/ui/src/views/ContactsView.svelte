@@ -1,0 +1,216 @@
+<script lang="ts">
+  /**
+   * Contacts view: everyone the synced call log knows about, searchable by name or
+   * number, one click to dial. Names come from the phone, which resolves them
+   * against its own address book.
+   */
+
+  import { ipc } from '$lib/ipc';
+  import { history, isConnected } from '$lib/state';
+  import { contactsFromHistory, normalize, type Contact } from '$lib/contacts';
+  import { formatNumber } from '$lib/format';
+
+  let query = $state('');
+  let failure = $state<string | null>(null);
+
+  const all = $derived(contactsFromHistory($history));
+
+  // Named people first: a bare number is a weaker match for a human scanning.
+  const matches = $derived.by(() => {
+    const needle = query.trim().toLowerCase();
+    const digits = normalize(query);
+
+    const filtered = needle
+      ? all.filter(
+          (contact) =>
+            contact.name.toLowerCase().includes(needle) ||
+            (digits.length > 0 && normalize(contact.number).includes(digits)),
+        )
+      : all;
+
+    return filtered.slice(0, 300);
+  });
+
+  const named = $derived(matches.filter((c) => c.name !== c.number));
+  const unnamed = $derived(matches.filter((c) => c.name === c.number));
+
+  async function call(contact: Contact): Promise<void> {
+    if (!$isConnected) return;
+    failure = null;
+    try {
+      await ipc.dial(contact.number);
+    } catch (error) {
+      failure = error instanceof Error ? error.message : 'Could not place the call';
+    }
+  }
+</script>
+
+<section class="contacts">
+  <header>
+    <h1>Contacts</h1>
+    <p class="label">{all.length} from your call history</p>
+  </header>
+
+  <input
+    class="search"
+    type="search"
+    bind:value={query}
+    placeholder="Search name or number"
+    aria-label="Search contacts"
+    autocomplete="off"
+  />
+
+  {#if failure}
+    <p class="failure" role="alert">{failure}</p>
+  {/if}
+
+  {#if all.length === 0}
+    <p class="empty">
+      Nothing yet. Contacts appear here once your phone's call history has synced.
+    </p>
+  {:else if matches.length === 0}
+    <p class="empty">No contact matches “{query}”.</p>
+  {:else}
+    <ul>
+      {#each [...named, ...unnamed] as contact (contact.number)}
+        <li>
+          <button type="button" onclick={() => call(contact)} disabled={!$isConnected}>
+            <span class="avatar" aria-hidden="true">{contact.name.charAt(0).toUpperCase()}</span>
+            <span class="meta">
+              <span class="name">{contact.name}</span>
+              <span class="num numeric">{formatNumber(contact.number)}</span>
+            </span>
+            <span class="go" aria-hidden="true">Call</span>
+          </button>
+        </li>
+      {/each}
+    </ul>
+  {/if}
+
+  {#if !$isConnected}
+    <p class="empty">Pair a phone to place calls.</p>
+  {/if}
+</section>
+
+<style>
+  .contacts {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  header h1 {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 19px;
+    font-weight: 650;
+    letter-spacing: -0.015em;
+  }
+
+  header .label {
+    margin: 3px 0 0;
+  }
+
+  .search {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px 12px;
+    border-radius: var(--radius);
+    border: 1px solid var(--hairline);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 13px;
+  }
+
+  .search:focus {
+    outline: none;
+    border-color: var(--accent-a35);
+  }
+
+  ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  li button {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 9px 10px;
+    border-radius: var(--radius-s);
+    text-align: left;
+    transition: background 0.14s ease;
+  }
+
+  li button:hover:not(:disabled) {
+    background: var(--surface);
+  }
+
+  li button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .avatar {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--accent-a20);
+    color: var(--accent);
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .meta {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .name {
+    font-size: 13.5px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .num {
+    font-size: 11px;
+    color: var(--text-3);
+  }
+
+  .go {
+    flex: none;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent);
+    opacity: 0;
+    transition: opacity 0.14s ease;
+  }
+
+  li button:hover:not(:disabled) .go {
+    opacity: 1;
+  }
+
+  .empty,
+  .failure {
+    margin: 0;
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--text-3);
+  }
+
+  .failure {
+    color: var(--danger);
+  }
+</style>

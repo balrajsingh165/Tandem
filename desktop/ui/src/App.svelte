@@ -8,17 +8,26 @@
   import PhoneSwitcher from './components/PhoneSwitcher.svelte';
   import StatusBadge from './components/StatusBadge.svelte';
   import ActiveCallView from './views/ActiveCallView.svelte';
+  import ContactsView from './views/ContactsView.svelte';
   import DialerView from './views/DialerView.svelte';
   import HistoryView from './views/HistoryView.svelte';
   import PairingView from './views/PairingView.svelte';
   import SettingsView from './views/SettingsView.svelte';
   import { ipc } from '$lib/ipc';
-  import { applyEvent, applyStatus, connection, primaryCall, revocation } from '$lib/state';
+  import {
+    applyEvent,
+    applyStatus,
+    connection,
+    loadHistory,
+    primaryCall,
+    revocation,
+  } from '$lib/state';
 
-  type Tab = 'dialer' | 'history' | 'pairing' | 'settings';
+  type Tab = 'dialer' | 'contacts' | 'history' | 'pairing' | 'settings';
 
   const tabs: Array<[Tab, string, string]> = [
     ['dialer', 'Dialer', '⌨'],
+    ['contacts', 'Contacts', '☰'],
     ['history', 'Recents', '↺'],
     ['pairing', 'Pair', '⇋'],
     ['settings', 'Settings', '⚙'],
@@ -33,7 +42,16 @@
     void (async () => {
       try {
         applyStatus(await ipc.status());
-        unlisten = await ipc.onEvent(applyEvent);
+        void loadHistory(ipc.history).catch(() => {});
+
+        unlisten = await ipc.onEvent((event) => {
+          applyEvent(event);
+          // Recents and every name lookup read one cache; refresh it when the
+          // phone says the log moved.
+          if (event.type === 'historyChanged') {
+            void loadHistory(ipc.history).catch(() => {});
+          }
+        });
       } catch (error) {
         startupError = error instanceof Error ? error.message : 'Cannot reach the Tandem daemon';
       }
@@ -71,6 +89,8 @@
       <ActiveCallView />
     {:else if tab === 'dialer'}
       <DialerView />
+    {:else if tab === 'contacts'}
+      <ContactsView />
     {:else if tab === 'history'}
       <HistoryView />
     {:else if tab === 'pairing'}
@@ -160,7 +180,7 @@
   nav {
     flex: none;
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     gap: 2px;
     padding: 6px 8px 10px;
     border-top: 1px solid var(--hairline);

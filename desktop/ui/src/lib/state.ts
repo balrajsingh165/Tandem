@@ -62,6 +62,17 @@ export const hasActiveEmergency: Readable<boolean> = derived(calls, ($calls) =>
   $calls.some((c) => c.isEmergency && c.state !== 'disconnected'),
 );
 
+/**
+ * Fills the shared history cache. Name resolution and dial suggestions read from
+ * it, so nothing that needs a contact name works until this has run.
+ */
+export async function loadHistory(
+  fetch: (sinceMs: number, limit: number) => Promise<{ entries: HistoryEntry[] }>,
+): Promise<void> {
+  const page = await fetch(0, 5000);
+  history.set(page.entries);
+}
+
 export function applyStatus(status: StatusResult): void {
   connection.set(status.connection);
   phones.set(status.phones);
