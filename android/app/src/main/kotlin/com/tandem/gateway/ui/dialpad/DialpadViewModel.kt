@@ -36,7 +36,8 @@ class DialpadViewModel @Inject constructor(
 
     /**
      * Shown above the keypad so someone can redial without opening a second
-     * screen, and narrowed as they type against both digits and saved names.
+     * screen, narrowed as they type against both digits and saved names. The list
+     * scrolls, so it carries real history rather than a token few.
      */
     val suggestions: StateFlow<List<CallLogEntry>> =
         combine(recents, _dialString) { history, typed ->
@@ -100,7 +101,7 @@ class DialpadViewModel @Inject constructor(
     }
 
     private companion object {
-        const val MAX_SUGGESTIONS = 4
-        const val RECENTS_FOR_SUGGESTIONS = 60
+        const val MAX_SUGGESTIONS = 60
+        const val RECENTS_FOR_SUGGESTIONS = 200
     }
 }

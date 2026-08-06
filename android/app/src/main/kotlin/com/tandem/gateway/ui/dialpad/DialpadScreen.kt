@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -131,7 +133,7 @@ fun DialpadScreen(
             }
             }
 
-            Spacer(Modifier.weight(0.5f))
+            Spacer(Modifier.size(10.dp))
 
             // The readout is the point of the screen, so it gets the room rather
             // than being one line among many.
@@ -159,13 +161,19 @@ fun DialpadScreen(
                 )
             }
 
-            if (suggestions.isNotEmpty()) {
-                Spacer(Modifier.size(12.dp))
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
+            // History takes the room between the readout and the keys and scrolls
+            // within it, so the keypad never moves as the list grows or filters.
+            if (suggestions.isEmpty()) {
+                Spacer(Modifier.weight(1f))
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(top = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
-                    suggestions.forEach { entry ->
+                    items(suggestions, key = { it.entryId }) { entry ->
                         SuggestionRow(
                             title = entry.displayName.ifBlank { entry.number },
                             subtitle = if (entry.displayName.isBlank()) "" else entry.number,
@@ -175,8 +183,6 @@ fun DialpadScreen(
                     }
                 }
             }
-
-            Spacer(Modifier.weight(1f))
 
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 KEYS.forEach { row ->
