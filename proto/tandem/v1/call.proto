@@ -86,3 +86,20 @@ message AudioRouteChangedEvent {
   string epoch_id = 3;
   uint64 state_seq = 4;
 }
+
+// One place the phone can send this call's audio. A Bluetooth entry names the
+// device, so the desktop can offer "this headset" rather than a bare "Bluetooth".
+message AudioDevice {
+  AudioRoute route = 1;
+  string bt_device_address = 2;      // Set only for AUDIO_ROUTE_BLUETOOTH.
+  string name = 3;                   // Label for the desktop to show.
+}
+
+// Phone -> desktop: every target this call can be routed to, and which one is
+// live. Sent on session start and whenever the set or the active route changes,
+// so the desktop offers a real choice instead of guessing what exists.
+message AudioDevicesEvent {
+  repeated AudioDevice devices = 1;
+  AudioRoute active_route = 2;
+  string active_bt_device_address = 3;
+}

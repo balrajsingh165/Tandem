@@ -43,3 +43,17 @@ message PairingDecision {
 message RevokedEvent {
   string reason = 1;
 }
+
+// Desktop -> phone: this desktop is forgetting the pairing. The phone revokes
+// the desktop on receipt so neither side keeps trust the other has dropped.
+message UnpairRequest {
+  string reason = 1;
+}
+
+// Desktop -> phone: the verdict of the human at the computer, sent in reply to
+// PairingAwaitConfirmEvent. The phone commits the pairing only on accept, so the
+// scan authorizes on the phone and this authorizes on the computer — one
+// confirmation per device, never more.
+message PairingApproval {
+  bool accept = 1;
+}
