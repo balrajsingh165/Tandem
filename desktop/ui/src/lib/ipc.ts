@@ -60,7 +60,16 @@ export interface OfferResult {
   desktopName: string;
 }
 
+export interface PhoneSummary {
+  deviceId: string;
+  name: string;
+  connection: ConnectionStatus;
+  calls: CallView[];
+}
+
 export interface StatusResult {
+  phones: PhoneSummary[];
+  selectedPhoneId: string;
   connection: ConnectionStatus;
   phoneName: string;
   calls: CallView[];
@@ -82,6 +91,7 @@ export type IpcEvent =
       activeBtDeviceAddress: string;
     }
   | { type: 'historyChanged'; logVersion: number }
+  | { type: 'phonesChanged'; phones: PhoneSummary[]; selectedPhoneId: string }
   | { type: 'emergencyBlocked'; number: string; guidance: string }
   | { type: 'audioPipelineChanged'; scoActive: boolean; latencyMs: number | null }
   | { type: 'pairingProgress'; state: string; shortCode: string | null }
@@ -136,7 +146,8 @@ export const ipc = {
   pairing: (qrPayload: string) => call<void>('pairing', { qrPayload }),
   pairingOffer: () => call<OfferResult>('pairingOffer'),
   pairingConfirm: (accept: boolean) => call<void>('pairingConfirm', { accept }),
-  unpair: () => call<void>('unpair'),
+  unpair: (phoneId = '') => call<void>('unpair', { phoneId }),
+  selectPhone: (phoneId: string) => call<void>('selectPhone', { phoneId }),
 
   onEvent: (handler: (event: IpcEvent) => void) =>
     listen<IpcEvent>('tandem://event', (message) => handler(message.payload)),

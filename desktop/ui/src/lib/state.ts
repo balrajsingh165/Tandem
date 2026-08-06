@@ -7,6 +7,7 @@
 import { derived, writable, type Readable } from 'svelte/store';
 import type {
   AudioDeviceView,
+  PhoneSummary,
   AudioRoute,
   CallView,
   ConnectionStatus,
@@ -16,6 +17,10 @@ import type {
 } from './ipc';
 
 export const connection = writable<ConnectionStatus>('idle');
+
+/** Every paired phone, and which one commands act on. */
+export const phones = writable<PhoneSummary[]>([]);
+export const selectedPhoneId = writable<string>('');
 export const phoneName = writable<string>('');
 export const calls = writable<CallView[]>([]);
 export const audioRoute = writable<AudioRoute>('earpiece');
@@ -59,6 +64,8 @@ export const hasActiveEmergency: Readable<boolean> = derived(calls, ($calls) =>
 
 export function applyStatus(status: StatusResult): void {
   connection.set(status.connection);
+  phones.set(status.phones);
+  selectedPhoneId.set(status.selectedPhoneId);
   phoneName.set(status.phoneName);
   calls.set(status.calls);
   audioRoute.set(status.audioRoute);
@@ -86,6 +93,10 @@ export function applyEvent(event: IpcEvent): void {
       activeBtDeviceAddress.set(event.activeBtDeviceAddress);
       break;
     case 'historyChanged':
+      break;
+    case 'phonesChanged':
+      phones.set(event.phones);
+      selectedPhoneId.set(event.selectedPhoneId);
       break;
     case 'emergencyBlocked':
       emergencyNotice.set({ number: event.number, guidance: event.guidance });

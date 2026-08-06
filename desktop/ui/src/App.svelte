@@ -5,6 +5,7 @@
    * required by ADR-0008 UX copy.
    */
 
+  import PhoneSwitcher from './components/PhoneSwitcher.svelte';
   import StatusBadge from './components/StatusBadge.svelte';
   import ActiveCallView from './views/ActiveCallView.svelte';
   import DialerView from './views/DialerView.svelte';
@@ -51,7 +52,10 @@
       <span class="mark" aria-hidden="true"></span>
       <span class="name">Tandem</span>
     </div>
-    <StatusBadge status={$connection} />
+    <div class="right">
+      <PhoneSwitcher />
+      <StatusBadge status={$connection} />
+    </div>
   </header>
 
   {#if startupError}
@@ -110,6 +114,12 @@
   }
 
   .brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .right {
     display: flex;
     align-items: center;
     gap: 8px;
