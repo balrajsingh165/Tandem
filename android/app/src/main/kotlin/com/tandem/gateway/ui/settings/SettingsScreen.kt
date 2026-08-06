@@ -35,6 +35,21 @@ import com.tandem.gateway.R
 import com.tandem.gateway.domain.model.PairedDesktop
 
 @Composable
+private fun SyncRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(text = value, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
 fun SettingsScreen(
     onBack: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
@@ -54,6 +69,55 @@ fun SettingsScreen(
             text = stringResource(R.string.settings_title),
             style = MaterialTheme.typography.headlineSmall,
         )
+
+        // What a paired computer can read, stated plainly. Pairing grants call
+        // control; this is the data that rides along with it, so the user should be
+        // able to see it in one place rather than infer it.
+        Card {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.settings_sync_title),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    text = stringResource(R.string.settings_sync_body),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                SyncRow(
+                    label = stringResource(R.string.settings_sync_calls),
+                    value = if (state.callLogEntries > 0) {
+                        stringResource(R.string.settings_sync_on)
+                    } else {
+                        stringResource(R.string.settings_sync_needs_permission)
+                    },
+                )
+                SyncRow(
+                    label = stringResource(R.string.settings_sync_contacts),
+                    value = if (state.contactsShared > 0) {
+                        stringResource(R.string.settings_sync_count, state.contactsShared)
+                    } else {
+                        stringResource(R.string.settings_sync_needs_permission)
+                    },
+                )
+                state.contactSources.forEach { source ->
+                    SyncRow(
+                        label = "   ${source.label}",
+                        value = source.count.toString(),
+                    )
+                }
+                SyncRow(
+                    label = stringResource(R.string.settings_sync_messages),
+                    value = stringResource(R.string.settings_sync_never),
+                )
+            }
+        }
 
         Text(
             text = stringResource(R.string.settings_paired_devices),

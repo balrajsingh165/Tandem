@@ -77,5 +77,15 @@
     <string name="action_message">Message</string>
     <string name="action_whatsapp">WhatsApp</string>
     <string name="caller_on_whatsapp">On WhatsApp</string>
+
+    <string name="settings_sync_title">What computers can read</string>
+    <string name="settings_sync_body">A paired computer can place and control calls. It also mirrors the data below so you can dial by name without this phone in hand.</string>
+    <string name="settings_sync_calls">Call history</string>
+    <string name="settings_sync_contacts">Contacts</string>
+    <string name="settings_sync_messages">Messages</string>
+    <string name="settings_sync_on">Shared</string>
+    <string name="settings_sync_never">Never shared</string>
+    <string name="settings_sync_count">%1$d shared</string>
+    <string name="settings_sync_needs_permission">Needs permission</string>
     <string name="dialpad_delete">Delete</string>
 </resources>
