@@ -37,7 +37,7 @@ interface ContactRepository {
     /**
      * The accounts present on this phone. Never a hardcoded list: SIM account
      * types differ by OEM, so offering a choice the phone does not have would be
-     * a dead option (docs/17).
+     * a dead option (docs/18).
      */
     suspend fun sources(): Result<List<ContactSource>>
 

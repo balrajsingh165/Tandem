@@ -30,6 +30,7 @@ tandem/
 │       ├── common.proto
 │       ├── call.proto
 │       ├── calllog.proto
+│       ├── contacts.proto
 │       ├── pairing.proto
 │       └── transport.proto
 ├── docs/
@@ -51,6 +52,7 @@ tandem/
 │   ├── 15-testing-strategy.md
 │   ├── 16-roadmap.md
 │   ├── 17-windows-software-audio.md
+│   ├── 18-messaging-and-contact-sources.md
 │   ├── REPO-STRUCTURE.md
 │   └── adr/
 │       ├── 0001-licensing-and-project-name.md
@@ -376,6 +378,10 @@ codegen output, `Cargo.lock`, `node_modules/`, build directories.
   > Call-control requests (desktop -> phone) and call-plane events (phone -> desktop) for TLP
   > v1. All user intent flows over these messages; the desktop never issues HFP AT call-control
   > commands (see docs/05).
+- **`proto/tandem/v1/contacts.proto`** — Contact directory sync messages.
+  > Contact directory sync (phone -> desktop) for TLP v1. The phone owns the address
+  > book; the desktop keeps a searchable projection so a user can dial by name
+  > without the phone in hand. Read-only: Tandem never writes contacts.
 - **`proto/tandem/v1/calllog.proto`** — Call-history sync messages.
   > Call-history sync messages for TLP v1. The phone's OS call log is the source of truth;
   > desktops hold a read-only, incrementally synced projection.
@@ -491,6 +497,14 @@ Entries below beginning `…/` are relative to `android/app/src/main/kotlin/com/
   > Port over the pairing lifecycle: open/close a pairing window, expose the QR payload,
   > surface confirmation prompts, and finalize or reject a pairing candidate. Implemented by
   > PairingManagerImpl.
+- **`…/domain/port/ContactRepository.kt`** — Read-only address-book port.
+  > Port over the phone's address book: one name-ordered page of dialable numbers
+  > plus a directory version that changes whenever contacts do. Read-only — Tandem
+  > never writes to the address book. Implemented by ContactRepositoryImpl.
+- **`…/domain/model/ContactNumber.kt`** — One dialable contact number.
+  > One dialable number belonging to one contact. A contact with several numbers is
+  > several of these sharing a contactId, which is what lets a desktop group them
+  > without asking again.
 - **`…/domain/port/CallLogRepository.kt`** — Read-only call-history port.
   > Port over the OS call log: paged reads since a timestamp plus a Flow of change
   > notifications with a monotonic log version. Strictly read-only (no writes to the OS log).
@@ -545,6 +559,9 @@ Entries below beginning `…/` are relative to `android/app/src/main/kotlin/com/
   > Use-case: merge TelecomBridge call events, CallMediaProvider route changes, and mute state
   > into the versioned CallSnapshot stream (epoch_id, state_seq) that feeds every desktop
   > session and the handset UI alike.
+- **`…/domain/usecase/SyncContacts.kt`** — Paged address-book reads. `[Tier A]`
+  > Use-case: serve ContactsSyncRequest pages from ContactRepository and expose the
+  > current directory version. Read-only; the address book belongs to the phone.
 - **`…/domain/usecase/SyncCallLog.kt`** — Paged history reads for desktops. `[Tier A]`
   > Use-case: serve CallLogSyncRequest pages from CallLogRepository and expose the current
   > log_version. Read-only; retention/refresh policy in docs/09-data-models.md.
@@ -592,6 +609,21 @@ Entries below beginning `…/` are relative to `android/app/src/main/kotlin/com/
 
 #### calllog — history mirroring
 
+- **`…/contacts/ContactRepositoryImpl.kt`** — ContactsContract reads. `[Tier A]`
+  > ContactRepository over ContactsContract: reads name-ordered dialable numbers a
+  > page at a time and derives a directory version from the provider's own change
+  > counters. Missing READ_CONTACTS is reported as a typed failure rather than an
+  > empty address book, so the desktop can explain the gap.
+- **`…/contacts/ContactNameResolver.kt`** — Saved-name lookup for a caller. `[Tier A]`
+  > Resolves a saved contact name for a dialing number via ContactsContract
+  > PhoneLookup, with a small memo so an in-call screen recomposing does not
+  > requery the provider. Telecom only reports carrier CNAP, which is usually
+  > empty, so without this a saved contact shows as a bare number.
+- **`…/contacts/NumberInsight.kt`** — Offline caller metadata. `[Tier A]`
+  > Offline caller insight for a number with no saved contact: region, carrier and
+  > line type, derived from the digits alone with libphonenumber. Nothing leaves
+  > the phone — unlike a crowdsourced name database, this needs no lookup service
+  > and discloses nothing about the user or the caller.
 - **`…/calllog/CallLogRepositoryImpl.kt`** — CallLog provider reads. `[Tier A]`
   > CallLogRepository implementation querying android.provider.CallLog.Calls with paged,
   > timestamp-bounded projections (READ_CALL_LOG). Read-only by design; never writes or
@@ -729,6 +761,19 @@ Entries below beginning `…/` are relative to `android/app/src/main/kotlin/com/
 - **`…/ui/theme/Theme.kt`** — Compose theme.
   > Material 3 Compose theme (colors, typography, shapes) for all gateway screens, light and
   > dark.
+- **`…/ui/home/HomeScreen.kt`** — Dialer home: recents, contacts, keypad. `[Tier A]`
+  > The phone's home: Recents, Contacts and Keypad behind a bottom bar, with the
+  > Connect menu in the top bar. This is the surface that has to stand on its own
+  > as the default dialer, so nothing here depends on a paired computer.
+- **`…/ui/home/HomeViewModel.kt`** — Recents/contacts state holder. `[Tier A]`
+  > ViewModel behind the phone's Recents and Contacts tabs: loads a page of the OS
+  > call log and the address book, and places a call from either. Read-only over
+  > both providers; dialing goes through PlaceCall so the emergency policy and
+  > dialer-role checks still apply.
+- **`…/ui/components/Common.kt`** — Shared screen scaffold and cards.
+  > Shared Compose building blocks for the gateway screens: the section card, the
+  > labelled row, the status pill, and the screen scaffold with a back affordance.
+  > Presentation only — no state, no logic.
 - **`…/ui/status/StatusScreen.kt`** — Gateway status dashboard. `[Tier A]`
   > Compose screen showing gateway health: dialer-role status, LAN listener state, connected
   > desktops, BT audio state, and the emergency-policy notice. Renders StatusViewModel state;
@@ -1199,6 +1244,10 @@ Entries below beginning `…/` are relative to `android/app/src/main/kotlin/com/
 - **`desktop/ui/src/views/ActiveCallView.svelte`** — Live-call screen. `[Tier A]`
   > Active-call view: caller identity, call timer, CallControls, DTMF pad, and the audio
   > route indicator with attach/detach-to-desktop action where a Tier B backend is present.
+- **`desktop/ui/src/views/ContactsView.svelte`** — Contact directory screen. `[Tier A]`
+  > Contacts view: everyone the synced call log knows about, searchable by name or
+  > number, one click to dial. Names come from the phone, which resolves them
+  > against its own address book.
 - **`desktop/ui/src/views/HistoryView.svelte`** — Call-history screen. `[Tier A]`
   > History view: the read-only mirrored call log with incremental loading and call-back
   > actions; displays the sync freshness state from state.ts.
@@ -1215,6 +1264,10 @@ Entries below beginning `…/` are relative to `android/app/src/main/kotlin/com/
 - **`desktop/ui/src/components/CallControls.svelte`** — Call control buttons.
   > Reusable call-control cluster (mute, hold, merge, end) rendering capability-gated
   > buttons from the mirrored call state; emits intents upward, never calls IPC itself.
+- **`desktop/ui/src/components/PhoneSwitcher.svelte`** — Which phone commands go to.
+  > Phone switcher: names the phone a command will be sent to, and lets the user
+  > change it when more than one is paired. Hidden entirely for a single phone,
+  > where there is nothing to choose.
 - **`desktop/ui/src/components/StatusBadge.svelte`** — Connection/route badge.
   > Small status badge for connection and audio-route states with accessible labels; used in
   > the header and settings.
@@ -1234,6 +1287,10 @@ Entries below beginning `…/` are relative to `android/app/src/main/kotlin/com/
   > Tauri v2 capability file: minimal permission set for the main window (shell events,
   > window control); no filesystem or network capabilities — all I/O goes through the daemon
   > IPC.
+- **`desktop/ui/src-tauri/src/tray.rs`** — Taskbar tray and its menu.
+  > Taskbar tray: keeps Tandem reachable while its window is hidden, with a
+  > left-click to reveal and a menu offering Open and Quit. Quit is the only path
+  > that actually exits, since closing the window only hides it.
 - **`desktop/ui/src-tauri/src/main.rs`** — Shell entry point.
   > Tauri shell entry: creates the window, tray icon, and notification bridge, and spawns
   > daemon_bridge for IPC forwarding. Contains no call logic (docs/14 layering).
