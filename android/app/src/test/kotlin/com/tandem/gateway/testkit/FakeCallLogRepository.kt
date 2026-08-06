@@ -36,8 +36,13 @@ class FakeCallLogRepository : CallLogRepository {
         _logVersion.value += 1
     }
 
-    override suspend fun page(sinceMs: Long, maxEntries: Int): Result<CallLogPage> {
-        val matching = entries.filter { it.startedAtMs >= sinceMs }
+    override suspend fun page(
+        sinceMs: Long,
+        maxEntries: Int,
+        beforeMs: Long,
+    ): Result<CallLogPage> {
+        val matching = entries
+            .filter { it.startedAtMs >= sinceMs && (beforeMs <= 0 || it.startedAtMs < beforeMs) }
             .sortedByDescending { it.startedAtMs }
         val page = matching.take(maxEntries)
         return Result.success(

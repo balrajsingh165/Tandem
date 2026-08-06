@@ -52,6 +52,13 @@ class InMemoryLanServer : LanServer, CallClaimArbiter {
         broadcastLogVersions += logVersion
     }
 
+    var audioDeviceBroadcasts: Int = 0
+        private set
+
+    override suspend fun broadcastAudioDevices() {
+        audioDeviceBroadcasts += 1
+    }
+
     override suspend fun revokeSession(deviceId: String, reason: String) {
         revocations += deviceId to reason
         _connectedSessions.value = _connectedSessions.value.filter { it.deviceId != deviceId }

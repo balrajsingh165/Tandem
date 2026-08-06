@@ -16,7 +16,11 @@ interface CallLogRepository {
      * Returns entries with startedAtMs >= [sinceMs], newest first, capped at
      * [MAX_PAGE_SIZE] regardless of what the caller asks for.
      */
-    suspend fun page(sinceMs: Long, maxEntries: Int): Result<CallLogPage>
+    /**
+     * One newest-first page. [beforeMs] is an exclusive upper bound so a desktop
+     * can walk the whole log; 0 asks for the newest rows.
+     */
+    suspend fun page(sinceMs: Long, maxEntries: Int, beforeMs: Long = 0): Result<CallLogPage>
 
     suspend fun currentVersion(): Long
 

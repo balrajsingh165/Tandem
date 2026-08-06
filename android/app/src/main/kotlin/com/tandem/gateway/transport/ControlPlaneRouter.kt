@@ -27,6 +27,7 @@ import com.tandem.gateway.proto.v1.Ack
 import com.tandem.gateway.proto.v1.CallLogSyncResponse
 import com.tandem.gateway.proto.v1.Envelope
 import com.tandem.gateway.proto.v1.ErrorCode
+import com.tandem.gateway.proto.v1.HeartbeatAck
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -113,6 +114,7 @@ class ControlPlaneRouter @Inject constructor(
                 syncCallLog(
                     envelope.callLogSyncRequest.sinceMs,
                     envelope.callLogSyncRequest.maxEntries,
+                    envelope.callLogSyncRequest.beforeMs,
                 ).map { page ->
                     Envelope.newBuilder()
                         .setProtocolVersion(EnvelopeCodec.PROTOCOL_VERSION)
@@ -135,6 +137,18 @@ class ControlPlaneRouter @Inject constructor(
             Envelope.PayloadCase.UNPAIR_REQUEST ->
                 pairedDeviceRepository.revoke(session.deviceId)
                     .map { ackEnvelope(envelope, ErrorCode.ERROR_CODE_OK) }
+
+            // Answering keeps the link warm: an idle Wi-Fi socket is dropped by
+            // power save without either end noticing it has gone.
+            Envelope.PayloadCase.HEARTBEAT -> Result.success(
+                Envelope.newBuilder()
+                    .setProtocolVersion(EnvelopeCodec.PROTOCOL_VERSION)
+                    .setInReplyTo(envelope.messageId)
+                    .setHeartbeatAck(
+                        HeartbeatAck.newBuilder().setSeq(envelope.heartbeat.seq).build(),
+                    )
+                    .build(),
+            )
 
             else -> return ack(envelope, ErrorCode.ERROR_CODE_INTERNAL)
         }

@@ -31,7 +31,11 @@ class CallLogRepositoryImpl @Inject constructor(
 
     override val logVersion: Flow<Long> = callLogObserver.logVersion
 
-    override suspend fun page(sinceMs: Long, maxEntries: Int): Result<CallLogPage> =
+    override suspend fun page(
+        sinceMs: Long,
+        maxEntries: Int,
+        beforeMs: Long,
+    ): Result<CallLogPage> =
         withContext(ioDispatcher) {
             if (!hasReadCallLogPermission()) {
                 return@withContext Result.failure(StoreError.PermissionDenied)
@@ -41,12 +45,26 @@ class CallLogRepositoryImpl @Inject constructor(
             val limit = maxEntries.coerceIn(1, CallLogRepository.MAX_PAGE_SIZE)
             val entries = mutableListOf<CallLogEntry>()
 
+            // The upper bound is what makes newest-first paging possible: without
+            // it every request returns the same newest rows.
+            val paged = beforeMs > 0
+            val selection = if (paged) {
+                "${CallLog.Calls.DATE} >= ? AND ${CallLog.Calls.DATE} < ?"
+            } else {
+                "${CallLog.Calls.DATE} >= ?"
+            }
+            val args = if (paged) {
+                arrayOf(sinceMs.toString(), beforeMs.toString())
+            } else {
+                arrayOf(sinceMs.toString())
+            }
+
             runCatching {
                 context.contentResolver.query(
                     CallLog.Calls.CONTENT_URI,
                     PROJECTION,
-                    "${CallLog.Calls.DATE} >= ?",
-                    arrayOf(sinceMs.toString()),
+                    selection,
+                    args,
                     "${CallLog.Calls.DATE} DESC LIMIT ${limit + 1}",
                 )?.use { cursor ->
                     val idIndex = cursor.getColumnIndexOrThrow(CallLog.Calls._ID)

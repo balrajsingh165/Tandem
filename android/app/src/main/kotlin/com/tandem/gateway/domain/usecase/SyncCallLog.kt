@@ -13,9 +13,13 @@ class SyncCallLog @Inject constructor(
     private val callLogRepository: CallLogRepository,
 ) {
     /** The server caps [maxEntries] regardless of what a desktop asks for. */
-    suspend operator fun invoke(sinceMs: Long, maxEntries: Int): Result<CallLogPage> {
+    suspend operator fun invoke(
+        sinceMs: Long,
+        maxEntries: Int,
+        beforeMs: Long = 0,
+    ): Result<CallLogPage> {
         val capped = maxEntries.coerceIn(1, CallLogRepository.MAX_PAGE_SIZE)
-        return callLogRepository.page(sinceMs.coerceAtLeast(0), capped)
+        return callLogRepository.page(sinceMs.coerceAtLeast(0), capped, beforeMs.coerceAtLeast(0))
     }
 
     suspend fun currentVersion(): Long = callLogRepository.currentVersion()

@@ -46,6 +46,7 @@ class GatewayForegroundService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob())
     private var running = false
+    private var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -65,6 +66,7 @@ class GatewayForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        releaseWifiLock()
         scope.cancel()
         callLogObserver.stop()
         hfpAgMonitor.stop()
@@ -72,6 +74,26 @@ class GatewayForegroundService : Service() {
         scope.launch { lanServer.stop() }
         running = false
         super.onDestroy()
+    }
+
+    /**
+     * Wi-Fi power save parks the radio when the screen is off, which silently
+     * kills the control socket. A high-performance lock keeps the link usable for
+     * as long as the gateway is running.
+     */
+    private fun acquireWifiLock() {
+        if (wifiLock != null) return
+        val manager = getSystemService(android.net.wifi.WifiManager::class.java) ?: return
+        wifiLock = runCatching {
+            manager
+                .createWifiLock(android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF, "tandem:lan")
+                .also { it.acquire() }
+        }.getOrNull()
+    }
+
+    private fun releaseWifiLock() {
+        wifiLock?.let { lock -> runCatching { if (lock.isHeld) lock.release() } }
+        wifiLock = null
     }
 
     private fun promoteToForeground() {
@@ -95,6 +117,7 @@ class GatewayForegroundService : Service() {
         nsdAdvertiser.register(port, identity.deviceId, identity.displayName)
         callLogObserver.start()
         hfpAgMonitor.start()
+        acquireWifiLock()
 
         // Phone truth flows outward: every snapshot fans out to every desktop.
         observeCallState()

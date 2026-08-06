@@ -1,7 +1,7 @@
 /**
  * Compose screen for pairing: requests the camera, scans the code shown on the
- * desktop, reports progress while that desktop connects, and renders the
- * accept/reject confirmation sheet with its name and fingerprint.
+ * desktop, reports progress while that desktop connects and confirms, and renders
+ * the accept/reject sheet for the legacy phone-shows-a-code path.
  */
 package com.tandem.gateway.ui.pairing
 
@@ -17,14 +17,12 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,12 +33,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tandem.gateway.R
 import com.tandem.gateway.domain.port.PairingWindowState
+import com.tandem.gateway.ui.components.DetailRow
+import com.tandem.gateway.ui.components.SectionCard
+import com.tandem.gateway.ui.components.TandemScreen
 
 @Composable
 fun PairingScreen(
@@ -65,81 +67,80 @@ fun PairingScreen(
         if (granted) viewModel.startScanning()
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+    TandemScreen(
+        title = stringResource(R.string.pairing_title),
+        eyebrow = "One-time setup",
+        onBack = onBack,
     ) {
-        TextButton(onClick = onBack) { Text("Back") }
-
-        Text(
-            text = stringResource(R.string.pairing_title),
-            style = MaterialTheme.typography.headlineSmall,
-        )
-
         when (val current = state) {
             is PairingWindowState.Closed, is PairingWindowState.Failed -> {
                 if (current is PairingWindowState.Failed) {
-                    Text(
-                        text = current.error.message.orEmpty(),
-                        color = MaterialTheme.colorScheme.error,
-                    )
+                    Notice(current.error.message.orEmpty(), isError = true)
                 }
 
                 if (scanning && cameraGranted) {
-                    Text(stringResource(R.string.pairing_scan_instruction))
+                    Text(
+                        text = stringResource(R.string.pairing_scan_instruction),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .aspectRatio(1f)
-                            .clip(RoundedCornerShape(16.dp)),
+                            .clip(MaterialTheme.shapes.large),
                     ) {
                         QrScannerView(
                             onDecoded = { viewModel.onCodeScanned(it) },
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
-                    OutlinedButton(onClick = { viewModel.stopScanning() }) { Text("Cancel") }
-                } else {
-                    Text(stringResource(R.string.pairing_scan_prompt))
-                    Button(
-                        onClick = {
-                            if (cameraGranted) {
-                                viewModel.startScanning()
-                            } else {
-                                requestCamera.launch(Manifest.permission.CAMERA)
-                            }
-                        },
+                    OutlinedButton(
+                        onClick = { viewModel.stopScanning() },
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(stringResource(R.string.pairing_scan_action))
+                        Text("Cancel")
+                    }
+                } else {
+                    SectionCard {
+                        Text(
+                            text = "Scan the code on your computer",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = stringResource(R.string.pairing_scan_prompt),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Button(
+                            onClick = {
+                                if (cameraGranted) {
+                                    viewModel.startScanning()
+                                } else {
+                                    requestCamera.launch(Manifest.permission.CAMERA)
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(stringResource(R.string.pairing_scan_action))
+                        }
                     }
                 }
 
-                scanError?.let { message ->
-                    Text(text = message, color = MaterialTheme.colorScheme.error)
-                }
+                scanError?.let { Notice(it, isError = true) }
             }
 
-            is PairingWindowState.AwaitingDesktopApproval -> {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    CircularProgressIndicator()
-                    Text(stringResource(R.string.pairing_confirm_on_computer, current.desktopName))
-                }
-            }
+            is PairingWindowState.AwaitingDesktopApproval -> Waiting(
+                stringResource(R.string.pairing_confirm_on_computer, current.desktopName),
+            )
 
             is PairingWindowState.AwaitingDesktop -> {
+                Waiting(stringResource(R.string.pairing_awaiting_desktop, current.desktopName))
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    CircularProgressIndicator()
-                    Text(stringResource(R.string.pairing_awaiting_desktop, current.desktopName))
-                }
-                Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { viewModel.rescan() }, modifier = Modifier.weight(1f)) {
                         Text(stringResource(R.string.pairing_scan_again))
                     }
@@ -153,49 +154,104 @@ fun PairingScreen(
             }
 
             is PairingWindowState.Open -> {
-                Text(stringResource(R.string.pairing_manual_instruction))
-                Card {
-                    Text(
-                        text = stringResource(R.string.pairing_manual_instruction),
-                        modifier = Modifier.padding(12.dp),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+                Notice(stringResource(R.string.pairing_manual_instruction), isError = false)
+                OutlinedButton(
+                    onClick = { viewModel.closeWindow() },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Cancel")
                 }
-                OutlinedButton(onClick = { viewModel.closeWindow() }) { Text("Cancel") }
             }
 
             is PairingWindowState.AwaitingConfirmation -> {
-                Text(
-                    text = stringResource(R.string.pairing_confirm_title),
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Text(
-                    stringResource(
-                        R.string.pairing_confirm_body,
-                        current.desktopName,
-                        current.desktopPlatform,
-                    ),
-                )
-
-                current.shortCode?.let { code ->
-                    Text(stringResource(R.string.pairing_short_code_prompt))
-                    Text(text = code, style = MaterialTheme.typography.headlineLarge)
-                }
-
-                Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { viewModel.accept() }, modifier = Modifier.weight(1f)) {
-                        Text(stringResource(R.string.pairing_accept))
+                SectionCard(accented = true) {
+                    Text(
+                        text = stringResource(R.string.pairing_confirm_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = stringResource(
+                            R.string.pairing_confirm_body,
+                            current.desktopName,
+                            current.desktopPlatform,
+                        ),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    current.shortCode?.let { code ->
+                        DetailRow(
+                            label = stringResource(R.string.pairing_short_code_prompt),
+                            value = code,
+                            emphasis = true,
+                        )
                     }
-                    OutlinedButton(
-                        onClick = { viewModel.reject() },
-                        modifier = Modifier.weight(1f),
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Text(stringResource(R.string.pairing_reject))
+                        Button(onClick = { viewModel.accept() }, modifier = Modifier.weight(1f)) {
+                            Text(stringResource(R.string.pairing_accept))
+                        }
+                        OutlinedButton(
+                            onClick = { viewModel.reject() },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(stringResource(R.string.pairing_reject))
+                        }
                     }
                 }
             }
 
-            is PairingWindowState.Completed -> Text("Paired with ${current.desktop.name}")
+            is PairingWindowState.Completed -> SectionCard(accented = true) {
+                Text(
+                    text = "Paired with ${current.desktop.name}",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "That computer can now place and control calls on this phone.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
+    }
+}
+
+@Composable
+private fun Waiting(message: String) {
+    SectionCard {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.padding(2.dp))
+            Text(text = message, style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+}
+
+@Composable
+private fun Notice(message: String, isError: Boolean) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = if (isError) {
+            MaterialTheme.colorScheme.errorContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant
+        },
+    ) {
+        Text(
+            text = message,
+            modifier = Modifier.padding(14.dp),
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (isError) {
+                MaterialTheme.colorScheme.onErrorContainer
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+        )
     }
 }
