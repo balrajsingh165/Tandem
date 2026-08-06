@@ -38,13 +38,26 @@ class ContactRepositoryImpl @Inject constructor(
 
             runCatching {
                 // One extra row answers hasMore without a second query.
+                // LIMIT/OFFSET go in the URI rather than the sort order: smuggling
+                // them into ORDER BY is rejected by some providers.
+                val uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI
+                    .buildUpon()
+                    .appendQueryParameter(
+                        ContactsContract.LIMIT_PARAM_KEY,
+                        (limit + 1).toString(),
+                    )
+                    .appendQueryParameter(
+                        "offset",
+                        offset.coerceAtLeast(0).toString(),
+                    )
+                    .build()
+
                 context.contentResolver.query(
-                    ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                    uri,
                     PROJECTION,
                     null,
                     null,
-                    "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME_PRIMARY} ASC " +
-                        "LIMIT ${limit + 1} OFFSET ${offset.coerceAtLeast(0)}",
+                    "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME_PRIMARY} ASC",
                 )?.use { cursor ->
                     val idIndex =
                         cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.CONTACT_ID)
@@ -83,7 +96,12 @@ class ContactRepositoryImpl @Inject constructor(
                         directoryVersion = directoryVersion(),
                     )
                 } ?: ContactPage(entries, hasMore = false, directoryVersion = directoryVersion())
-            }.recoverCatching { throw StoreError.QueryFailed(it.message.orEmpty()) }
+            }.recoverCatching { cause ->
+                // Logged at error level because this ROM drops app INFO/WARN, and a
+                // silent empty address book is indistinguishable from a refusal.
+                android.util.Log.e(TAG, "contacts query failed", cause)
+                throw StoreError.QueryFailed(cause.message.orEmpty())
+            }
         }
 
     /**
@@ -122,6 +140,8 @@ class ContactRepositoryImpl @Inject constructor(
     }
 
     private companion object {
+        const val TAG = "TandemContacts"
+
         val PROJECTION = arrayOf(
             ContactsContract.CommonDataKinds.Phone.CONTACT_ID,
             ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME_PRIMARY,

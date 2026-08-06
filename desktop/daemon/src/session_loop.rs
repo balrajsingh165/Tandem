@@ -369,6 +369,16 @@ pub async fn run_one_session(
         }))
         .await?;
 
+    // The address book is what makes dial-by-name possible. It is small enough to
+    // re-read per session rather than reconciled, and the first page is what tells
+    // the store to replace what it held.
+    client
+        .send_payload(to_payload(OutboundRequest::SyncContacts {
+            offset: 0,
+            max_entries: CONTACTS_PAGE_SIZE,
+        }))
+        .await?;
+
     // Reading the phone and writing user intent have to share one task, because
     // the socket has a single writer. Commands queued while the link was down are
     // still delivered here, in order.
