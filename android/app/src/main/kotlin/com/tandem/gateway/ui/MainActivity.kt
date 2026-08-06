@@ -14,7 +14,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.tandem.gateway.dialer.DialIntentRouter
-import com.tandem.gateway.ui.dialpad.DialpadScreen
+import com.tandem.gateway.ui.home.HomeScreen
 import com.tandem.gateway.ui.pairing.PairingScreen
 import com.tandem.gateway.ui.settings.SettingsScreen
 import com.tandem.gateway.ui.status.StatusScreen
@@ -54,7 +54,7 @@ class MainActivity : ComponentActivity() {
                         onBack = { destination = Destination.STATUS },
                     )
 
-                    Destination.DIALPAD -> DialpadScreen(
+                    Destination.DIALPAD -> HomeScreen(
                         initialNumber = prefilledNumber.orEmpty(),
                         onOpenConnect = { destination = Destination.STATUS },
                     )

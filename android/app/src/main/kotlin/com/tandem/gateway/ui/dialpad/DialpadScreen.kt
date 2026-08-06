@@ -73,6 +73,8 @@ private val KEYS = listOf(
 fun DialpadScreen(
     initialNumber: String,
     onOpenConnect: () -> Unit,
+    /** False when a host scaffold already provides the bar and insets. */
+    showChrome: Boolean = true,
     viewModel: DialpadViewModel = hiltViewModel(),
 ) {
     val dialString by viewModel.dialString.collectAsStateWithLifecycle()
@@ -87,10 +89,14 @@ fun DialpadScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .then(
+                    if (showChrome) Modifier.windowInsetsPadding(WindowInsets.safeDrawing)
+                    else Modifier,
+                )
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            if (showChrome) {
             // A phone app's chrome: the product name, and one menu holding
             // everything that is not dialling.
             Row(
@@ -120,6 +126,7 @@ fun DialpadScreen(
                         )
                     }
                 }
+            }
             }
 
             Spacer(Modifier.weight(0.5f))
