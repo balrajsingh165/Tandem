@@ -142,15 +142,22 @@ class ContactRepositoryImpl @Inject constructor(
         }.getOrDefault(0L)
     }
 
+    /**
+     * Counted over *phone rows*, not raw contacts. An account like Telegram creates
+     * hundreds of raw contacts that carry identity and actions but no dialable
+     * number — those aggregate onto the Google or device contact that owns the
+     * number. Counting raw contacts therefore offers a source that can only ever
+     * return an empty list, so accounts with no numbers are left out entirely.
+     */
     override suspend fun sources(): Result<List<ContactSource>> = withContext(ioDispatcher) {
         if (!hasPermission()) return@withContext Result.failure(StoreError.PermissionDenied)
 
         runCatching {
             val counts = linkedMapOf<String, Int>()
             context.contentResolver.query(
-                ContactsContract.RawContacts.CONTENT_URI,
+                ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
                 arrayOf(ContactsContract.RawContacts.ACCOUNT_TYPE),
-                "${ContactsContract.RawContacts.DELETED} = 0",
+                null,
                 null,
                 null,
             )?.use { cursor ->
@@ -160,9 +167,12 @@ class ContactRepositoryImpl @Inject constructor(
                 }
             }
 
-            counts.map { (type, count) ->
-                ContactSource(accountType = type, label = labelForAccount(type), count = count)
-            }
+            counts
+                .filterValues { it > 0 }
+                .map { (type, count) ->
+                    ContactSource(accountType = type, label = labelForAccount(type), count = count)
+                }
+                .sortedByDescending { it.count }
         }
     }
 

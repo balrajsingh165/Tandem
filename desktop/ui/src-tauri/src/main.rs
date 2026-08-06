@@ -2,7 +2,11 @@
 //! spawns daemon_bridge for IPC forwarding. Contains no call logic (docs/14
 //! layering).
 
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+// Unconditionally windowed. The usual `cfg_attr(not(debug_assertions), …)` form
+// leaves a console attached to debug builds, which surfaces as a stray cmd window
+// behind the app; diagnostics belong in the daemon's log, not a terminal nobody
+// asked for.
+#![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod daemon_bridge;
 mod tray;
@@ -10,6 +14,9 @@ mod tray;
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
+            // The UI is useless without the daemon, so it starts one if none is
+            // answering rather than making the user launch two things.
+            daemon_bridge::ensure_daemon_running();
             daemon_bridge::spawn_event_stream(app.handle().clone());
             tray::install(app.handle())?;
             Ok(())

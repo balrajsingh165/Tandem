@@ -18,6 +18,74 @@ static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 /// How long to wait before re-dialing a daemon that is not answering.
 const RECONNECT_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// Starts the daemon if nothing is listening. Windows would flash a console for a
+/// child console process, so it is created with CREATE_NO_WINDOW; a daemon that is
+/// already up is left alone.
+pub fn ensure_daemon_running() {
+    if daemon_is_listening() {
+        return;
+    }
+
+    let Some(exe) = daemon_path() else {
+        return;
+    };
+
+    let mut command = std::process::Command::new(exe);
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let _ = command.spawn();
+}
+
+/// Opening the pipe is the only reliable existence check on Windows — a named pipe
+/// has no directory entry to stat. The connection is dropped immediately; the
+/// daemon's accept loop treats that as a client that hung up.
+#[cfg(windows)]
+fn daemon_is_listening() -> bool {
+    std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(r"\\.\pipe\tandem-daemon")
+        .is_ok()
+}
+
+#[cfg(unix)]
+fn daemon_is_listening() -> bool {
+    let path = std::env::var("XDG_RUNTIME_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from("/tmp"))
+        .join("tandem/daemon.sock");
+    path.exists()
+}
+
+/// The daemon ships beside the UI in a release layout, and sits one directory up in
+/// a cargo target tree; both are tried before giving up on PATH.
+fn daemon_path() -> Option<std::path::PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    let name = if cfg!(windows) { "tandem-daemon.exe" } else { "tandem-daemon" };
+
+    let beside = dir.join(name);
+    if beside.is_file() {
+        return Some(beside);
+    }
+
+    // desktop/ui/src-tauri/target/debug -> desktop/target/debug
+    let cargo_tree = dir
+        .ancestors()
+        .nth(4)
+        .map(|root| root.join("target").join(if cfg!(debug_assertions) { "debug" } else { "release" }).join(name));
+    match cargo_tree {
+        Some(path) if path.is_file() => Some(path),
+        _ => Some(std::path::PathBuf::from(name)),
+    }
+}
+
 /// Holds one long-lived connection open purely to receive notifications, and
 /// re-establishes it whenever the daemon restarts. Without this the webview sees
 /// only its own replies and never learns that a call arrived, a pairing
