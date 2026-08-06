@@ -31,6 +31,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.runtime.LaunchedEffect
@@ -79,6 +80,7 @@ fun DialpadScreen(
 ) {
     val dialString by viewModel.dialString.collectAsStateWithLifecycle()
     val failure by viewModel.failure.collectAsStateWithLifecycle()
+    val suggestions by viewModel.suggestions.collectAsStateWithLifecycle()
 
     LaunchedEffect(initialNumber) { viewModel.setInitial(initialNumber) }
 
@@ -157,6 +159,23 @@ fun DialpadScreen(
                 )
             }
 
+            if (suggestions.isNotEmpty()) {
+                Spacer(Modifier.size(12.dp))
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    suggestions.forEach { entry ->
+                        SuggestionRow(
+                            title = entry.displayName.ifBlank { entry.number },
+                            subtitle = if (entry.displayName.isBlank()) "" else entry.number,
+                            onPick = { viewModel.choose(entry.number) },
+                            onCall = { viewModel.callNow(entry.number) },
+                        )
+                    }
+                }
+            }
+
             Spacer(Modifier.weight(1f))
 
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -210,6 +229,52 @@ fun DialpadScreen(
             }
 
             Spacer(Modifier.size(6.dp))
+        }
+    }
+}
+
+/**
+ * Tapping the row fills the field so the number can be checked before dialling;
+ * the trailing button dials straight away.
+ */
+@Composable
+private fun SuggestionRow(
+    title: String,
+    subtitle: String,
+    onPick: () -> Unit,
+    onCall: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.surface,
+        onClick = onPick,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                )
+                if (subtitle.isNotEmpty()) {
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            IconButton(onClick = onCall) {
+                Icon(
+                    Icons.Filled.Call,
+                    contentDescription = stringResource(R.string.dialpad_call),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
         }
     }
 }
