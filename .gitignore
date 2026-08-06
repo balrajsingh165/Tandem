@@ -35,3 +35,8 @@ desktop/ui/dist/
 desktop/ui/.vite/
 desktop/ui/src-tauri/gen/schemas/
 npm-debug.log*
+
+# JVM crash dumps from a Gradle daemon that ran out of memory. Diagnostics for the
+# machine that produced them, never repository content.
+hs_err_pid*.log
+replay_pid*.log
