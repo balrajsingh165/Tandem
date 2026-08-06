@@ -181,6 +181,7 @@ tandem/
 │           │           ├── incall/InCallScreen.kt
 │           │           ├── incall/InCallViewModel.kt
 │           │           ├── incall/IncomingCallNotifier.kt
+│           │           ├── incall/OngoingCallNotifier.kt
 │           │           ├── dialpad/DialpadScreen.kt
 │           │           └── dialpad/DialpadViewModel.kt
 │           └── test/kotlin/com/tandem/gateway/
@@ -810,6 +811,12 @@ Entries below beginning `…/` are relative to `android/app/src/main/kotlin/com/
   > ViewModel projecting ObserveCallState snapshots into in-call UI state and dispatching
   > control actions through the same use-cases the LAN path uses — one command path for both
   > surfaces.
+- **`…/ui/incall/OngoingCallNotifier.kt`** — Live-call notification. `[Tier A]`
+  > Posts the ongoing-call notification while a call is live, so leaving the app —
+  > deliberately or not — still leaves a way back and a way to hang up. Uses
+  > Notification.CallStyle where the platform has it (API 31+) so the system gives it
+  > the same treatment as the stock dialer, and a plain notification with the same
+  > actions below that.
 - **`…/ui/incall/IncomingCallNotifier.kt`** — Ringing notification/full-screen intent. `[Tier A]`
   > Posts the incoming-call notification (USE_FULL_SCREEN_INTENT + POST_NOTIFICATIONS) with
   > answer/decline actions and launches InCallActivity when ringing. The only surface allowed

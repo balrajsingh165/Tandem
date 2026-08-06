@@ -29,7 +29,10 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.Headset
+import androidx.compose.material.icons.filled.PhoneInTalk
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Dialpad
 import androidx.compose.material.icons.filled.MergeType
@@ -114,6 +117,7 @@ fun InCallScreen(
             call.remoteNumber.ifEmpty { stringResource(R.string.call_unknown_number) }
         }
         var showKeypad by remember { mutableStateOf(false) }
+        var showRoutes by remember { mutableStateOf(false) }
 
         Column(
             modifier = Modifier
@@ -196,6 +200,18 @@ fun InCallScreen(
                 DtmfPad(onDigit = { viewModel.dtmf(call.callId, it) })
             }
 
+            AnimatedVisibility(visible = showRoutes && !ringing) {
+                RoutePicker(
+                    targets = state.audioTargets,
+                    activeRoute = state.audioRoute,
+                    activeBtAddress = state.activeBtAddress,
+                    enabled = !state.isEmergency,
+                    onPick = { target ->
+                        viewModel.setAudioRoute(target.route, target.btAddress)
+                    },
+                )
+            }
+
             if (ringing) {
                 IncomingActions(
                     onAnswer = { viewModel.answer(call.callId) },
@@ -208,7 +224,7 @@ fun InCallScreen(
                     holding = call.state == CallState.HOLDING,
                     canHold = call.canHold && !state.isEmergency,
                     canMerge = state.canMerge && call.canMerge && !state.isEmergency,
-                    keypadOpen = showKeypad,
+                    keypadOpen = showKeypad || showRoutes,
                     enabled = !state.isEmergency,
                     onMute = { viewModel.setMuted(!state.muted) },
                     onHold = {
@@ -218,14 +234,20 @@ fun InCallScreen(
                             viewModel.hold(call.callId)
                         }
                     },
+                    // More than one destination means the user gets a choice, not a
+                    // guess about which one they meant.
                     onSpeakerToggle = {
-                        viewModel.setAudioRoute(
-                            if (state.audioRoute == AudioRoute.SPEAKER) {
-                                AudioRoute.EARPIECE
-                            } else {
-                                AudioRoute.SPEAKER
-                            },
-                        )
+                        if (state.audioTargets.size > 2) {
+                            showRoutes = !showRoutes
+                        } else {
+                            viewModel.setAudioRoute(
+                                if (state.audioRoute == AudioRoute.SPEAKER) {
+                                    AudioRoute.EARPIECE
+                                } else {
+                                    AudioRoute.SPEAKER
+                                },
+                            )
+                        }
                     },
                     onKeypad = { showKeypad = !showKeypad },
                     onMerge = { viewModel.merge(call.callId) },
@@ -509,6 +531,79 @@ private fun EndButton(enabled: Boolean, onClick: () -> Unit) {
             text = stringResource(R.string.call_end),
             fontWeight = FontWeight.SemiBold,
         )
+    }
+}
+
+/**
+ * Every audio destination the phone can use, including one row per connected
+ * Bluetooth device so "Bluetooth" is never an ambiguous single option.
+ */
+@Composable
+private fun RoutePicker(
+    targets: List<AudioTarget>,
+    activeRoute: AudioRoute,
+    activeBtAddress: String,
+    enabled: Boolean,
+    onPick: (AudioTarget) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.call_audio_output),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        targets.forEach { target ->
+            val active = target.route == activeRoute &&
+                (target.route != AudioRoute.BLUETOOTH || target.btAddress == activeBtAddress)
+
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.medium,
+                color = if (active) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant
+                },
+                enabled = enabled,
+                onClick = { onPick(target) },
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = when (target.route) {
+                            AudioRoute.SPEAKER -> Icons.Filled.VolumeUp
+                            AudioRoute.WIRED_HEADSET -> Icons.Filled.Headset
+                            AudioRoute.BLUETOOTH -> Icons.Filled.Bluetooth
+                            AudioRoute.EARPIECE -> Icons.Filled.PhoneInTalk
+                        },
+                        contentDescription = null,
+                        tint = if (active) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Text(
+                        text = target.label,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (active) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
+                    )
+                }
+            }
+        }
     }
 }
 

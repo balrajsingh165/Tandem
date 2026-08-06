@@ -26,6 +26,7 @@ import com.tandem.gateway.domain.usecase.UnholdCall
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -39,12 +40,22 @@ data class InCallUiState(
     val callerPhotoUri: String = "",
     /** True when the number is also registered on WhatsApp. */
     val callerOnWhatsApp: Boolean = false,
+    /** Every place this call's audio can go, as the OS reports it. */
+    val audioTargets: List<AudioTarget> = emptyList(),
+    val activeBtAddress: String = "",
     val muted: Boolean = false,
     val audioRoute: AudioRoute = AudioRoute.EARPIECE,
     val canMerge: Boolean = false,
 ) {
     val isEmergency: Boolean get() = primaryCall?.isEmergency == true
 }
+
+/** One selectable audio destination: a phone route, or a named Bluetooth device. */
+data class AudioTarget(
+    val route: AudioRoute,
+    val btAddress: String,
+    val label: String,
+)
 
 @HiltViewModel
 class InCallViewModel @Inject constructor(
@@ -60,13 +71,44 @@ class InCallViewModel @Inject constructor(
     private val requestAudioRoute: RequestAudioRoute,
     private val numberInsightResolver: NumberInsightResolver,
     private val callerIdentityResolver: CallerIdentityResolver,
+    private val telecomBridge: com.tandem.gateway.telecom.TelecomBridgeImpl,
+    private val callMediaProvider: com.tandem.gateway.domain.port.CallMediaProvider,
 ) : ViewModel() {
+
+    /**
+     * Rebuilt whenever the supported set or the connected headsets change: offering a
+     * target Telecom would refuse is worse than not offering it.
+     */
+    private val targets: StateFlow<List<AudioTarget>> = combine(
+        telecomBridge.supportedRoutes,
+        telecomBridge.btRouteAddress,
+    ) { supported, _ ->
+        buildList {
+            if (AudioRoute.EARPIECE in supported) {
+                add(AudioTarget(AudioRoute.EARPIECE, "", "Phone"))
+            }
+            if (AudioRoute.SPEAKER in supported) {
+                add(AudioTarget(AudioRoute.SPEAKER, "", "Speaker"))
+            }
+            if (AudioRoute.WIRED_HEADSET in supported) {
+                add(AudioTarget(AudioRoute.WIRED_HEADSET, "", "Wired"))
+            }
+            if (AudioRoute.BLUETOOTH in supported) {
+                callMediaProvider.availableBluetoothTargets().forEach { device ->
+                    add(AudioTarget(AudioRoute.BLUETOOTH, device.address, device.name))
+                }
+            }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val snapshots: StateFlow<CallSnapshot?> = observeCallState()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    val uiState: StateFlow<InCallUiState> = snapshots
-        .map { snapshot ->
+    val uiState: StateFlow<InCallUiState> = combine(
+        snapshots,
+        targets,
+        telecomBridge.btRouteAddress,
+    ) { snapshot, audioTargets, btAddress ->
             val live = snapshot?.calls.orEmpty().filter { !it.isTerminal }
             val primary = live.firstOrNull { it.isRinging } ?: live.firstOrNull()
             val identity = primary?.let { callerIdentityResolver.identityFor(it.remoteNumber) }
@@ -81,11 +123,13 @@ class InCallViewModel @Inject constructor(
                     .orEmpty(),
                 callerPhotoUri = identity?.photoUri.orEmpty(),
                 callerOnWhatsApp = identity?.onWhatsApp == true,
+                audioTargets = audioTargets,
+                activeBtAddress = btAddress,
                 muted = snapshot?.microphoneMuted ?: false,
                 audioRoute = snapshot?.audioRoute ?: AudioRoute.EARPIECE,
                 canMerge = live.size > 1,
             )
-        }
+    }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), InCallUiState())
 
     /**

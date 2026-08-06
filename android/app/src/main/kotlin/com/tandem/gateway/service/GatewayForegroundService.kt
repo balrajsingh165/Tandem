@@ -44,6 +44,8 @@ class GatewayForegroundService : Service() {
     @Inject lateinit var emergencyNumberSource: EmergencyNumberSource
     @Inject lateinit var telecomBridge: TelecomBridgeImpl
     @Inject lateinit var revokeDesktop: com.tandem.gateway.domain.usecase.RevokeDesktop
+    @Inject lateinit var endCall: com.tandem.gateway.domain.usecase.EndCall
+    @Inject lateinit var ongoingCallNotifier: com.tandem.gateway.ui.incall.OngoingCallNotifier
 
     private val scope = CoroutineScope(SupervisorJob())
     private var running = false
@@ -59,6 +61,12 @@ class GatewayForegroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // Revoking from the notification must work whether or not the service was
         // already up, so the action is handled before the start guard.
+        if (intent?.action == ACTION_END_CALL) {
+            intent.getStringExtra(EXTRA_CALL_ID)?.let { callId ->
+                scope.launch { endCall(callId, observeCallState().first()) }
+            }
+        }
+
         if (intent?.action == ACTION_DISCONNECT) {
             intent.getStringExtra(EXTRA_DEVICE_ID)?.let { deviceId ->
                 scope.launch { revokeDesktop(deviceId, reason = "disconnected on the phone") }
@@ -75,6 +83,7 @@ class GatewayForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        ongoingCallNotifier.cancel()
         releaseWifiLock()
         scope.cancel()
         callLogObserver.stop()
@@ -133,6 +142,19 @@ class GatewayForegroundService : Service() {
             .onEach { snapshot -> lanServer.broadcastSnapshot(snapshot) }
             .launchIn(scope)
 
+        // A live call must remain reachable from the shade after the user leaves the
+        // app, which is the one thing a dialer cannot get wrong.
+        observeCallState()
+            .onEach { snapshot ->
+                val live = snapshot.calls.firstOrNull { !it.isTerminal }
+                if (live == null) {
+                    ongoingCallNotifier.cancel()
+                } else {
+                    ongoingCallNotifier.notifyOngoing(live)
+                }
+            }
+            .launchIn(scope)
+
         callLogObserver.logVersion
             .onEach { version -> lanServer.broadcastCallLogChanged(version) }
             .launchIn(scope)
@@ -164,5 +186,9 @@ class GatewayForegroundService : Service() {
         /** Sent by the notification's Disconnect action; names the desktop to revoke. */
         const val ACTION_DISCONNECT: String = "com.tandem.gateway.DISCONNECT"
         const val EXTRA_DEVICE_ID: String = "device_id"
+
+        /** Sent by the ongoing-call notification's End action. */
+        const val ACTION_END_CALL: String = "com.tandem.gateway.END_CALL"
+        const val EXTRA_CALL_ID: String = "call_id"
     }
 }

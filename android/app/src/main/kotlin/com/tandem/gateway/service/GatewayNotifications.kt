@@ -113,5 +113,6 @@ class GatewayNotifications @Inject constructor(
         const val CHANNEL_CALLS: String = "tandem.calls"
         const val NOTIFICATION_ID_GATEWAY: Int = 1
         const val NOTIFICATION_ID_INCOMING: Int = 2
+        const val NOTIFICATION_ID_ONGOING: Int = 3
     }
 }
