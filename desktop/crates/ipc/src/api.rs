@@ -123,6 +123,8 @@ pub enum IpcRequest {
     PairingConfirm {
         accept: bool,
     },
+    /// Forgets the paired phone and drops the session.
+    Unpair,
     Settings,
     Status,
 }
@@ -158,6 +160,16 @@ pub struct OfferResult {
     pub desktop_name: String,
 }
 
+/// One place the call's audio can go. `btDeviceAddress` is empty for the phone's
+/// own routes and names the device for Bluetooth targets.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioDeviceView {
+    pub route: AudioRoute,
+    pub bt_device_address: String,
+    pub name: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StatusResult {
@@ -169,6 +181,10 @@ pub struct StatusResult {
     /// False on a Tier B-lite build, so the UI can explain that audio stays on
     /// the phone rather than offering a control that cannot work.
     pub desktop_audio_available: bool,
+    /// Everywhere this call's audio can be sent, as the phone reports it.
+    pub audio_devices: Vec<AudioDeviceView>,
+    /// Which of `audio_devices` is live; empty for a phone-local route.
+    pub active_bt_device_address: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -205,6 +221,12 @@ pub enum IpcEvent {
     AudioRouteChanged {
         route: AudioRoute,
         bt_device_address: String,
+    },
+    /// The set of places audio can go changed, or a different one became live.
+    AudioDevicesChanged {
+        devices: Vec<AudioDeviceView>,
+        active_route: AudioRoute,
+        active_bt_device_address: String,
     },
     HistoryChanged {
         log_version: u64,
@@ -320,6 +342,8 @@ mod tests {
             audio_route: AudioRoute::Bluetooth,
             microphone_muted: false,
             desktop_audio_available: true,
+            audio_devices: Vec::new(),
+            active_bt_device_address: String::new(),
         };
         assert_eq!(round_trip(&status), status);
         let json = serde_json::to_value(&status).unwrap();

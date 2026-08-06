@@ -190,16 +190,10 @@ where
         .and_then(|slot| slot.clone())
         .ok_or_else(|| PairingError::Transport("no peer key observed".into()))?;
 
-    // Nothing has been shared yet: the desktop's own user gets to see which
-    // phone picked up the code before its certificate goes across.
     let introduction = PhoneIntroduction {
         phone_name: phone.display_name.clone(),
         phone_fingerprint: phone_key.to_base64url(),
     };
-    on_progress(&OfferState::AwaitingLocalApproval(introduction.clone()));
-    if !confirm(introduction).await {
-        return Err(PairingError::RejectedByUser);
-    }
 
     client
         .send_payload(Payload::PairingRequest(PairingRequest {
@@ -220,7 +214,24 @@ where
             .map_err(|e| PairingError::Transport(e.to_string()))?;
 
         match payload {
+            // The phone reaches this point only after checking the one-time token
+            // against the code it scanned, and the token dies on first use. So the
+            // question below is asked at most once per code, and only for a phone
+            // that really did scan this screen.
             Payload::PairingAwaitConfirmEvent(_) => {
+                on_progress(&OfferState::AwaitingLocalApproval(introduction.clone()));
+                let accepted = confirm(introduction.clone()).await;
+
+                client
+                    .send_payload(Payload::PairingApproval(tandem_proto::PairingApproval {
+                        accept: accepted,
+                    }))
+                    .await
+                    .map_err(|e| PairingError::Transport(e.to_string()))?;
+
+                if !accepted {
+                    return Err(PairingError::RejectedByUser);
+                }
                 on_progress(&OfferState::AwaitingConfirmation);
             }
 

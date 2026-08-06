@@ -248,6 +248,8 @@ mod tests {
                     audio_route: crate::api::AudioRoute::Earpiece,
                     microphone_muted: false,
                     desktop_audio_available: false,
+                    audio_devices: Vec::new(),
+                    active_bt_device_address: String::new(),
                 })),
                 IpcRequest::Dial { number, .. } => Err(IpcError::EmergencyBlocked { number }),
                 _ => Ok(IpcResponse::Ok),

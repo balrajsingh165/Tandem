@@ -117,6 +117,9 @@ pub enum OutboundRequest {
         since_ms: i64,
         max_entries: u32,
     },
+    /// Tells the phone this desktop is forgetting the pairing, so trust is
+    /// dropped on both sides rather than only here.
+    Unpair,
 }
 
 impl OutboundRequest {
