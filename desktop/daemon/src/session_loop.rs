@@ -191,11 +191,15 @@ pub fn to_payload(request: OutboundRequest) -> Payload {
 
 /// Builds the resume cursor from what the desktop last saw, so the phone can
 /// tell whether the mirror is contiguous or must be replaced wholesale.
-pub fn resume_cursor(store: &Store, mirror: Option<&StateVersion>) -> ResumeCursor {
+pub fn resume_cursor(
+    store: &Store,
+    phone_id: &str,
+    mirror: Option<&StateVersion>,
+) -> ResumeCursor {
     ResumeCursor {
         last_epoch_id: mirror.map(|v| v.epoch_id.clone()).unwrap_or_default(),
         last_state_seq: mirror.map(|v| v.state_seq).unwrap_or(0),
-        last_call_log_version: store.last_call_log_version(),
+        last_call_log_version: store.last_call_log_version(phone_id),
     }
 }
 
@@ -321,7 +325,8 @@ pub async fn run_one_session(
     state_path: &std::path::Path,
 ) -> Result<(), TransportError> {
     let next_id = { app.lock().expect("app mutex poisoned").next_message_id() };
-    set_connection(link, events, ConnectionStatus::Connecting, "");
+    let phone_id = endpoint.device_id.clone();
+    set_connection(link, &phone_id, events, ConnectionStatus::Connecting, "");
 
     let mut client = connect_once(endpoint, credentials, next_id).await?;
     let session = client.session().clone();
@@ -330,19 +335,19 @@ pub async fn run_one_session(
     // so the local pre-check is re-armed on every connect (ADR-0008).
     {
         let mut guard = app.lock().expect("app mutex poisoned");
-        guard.adopt_emergency_numbers(session.emergency_numbers.clone());
+        guard.adopt_emergency_numbers(&phone_id, session.emergency_numbers.clone());
     }
-    set_connection(link, events, ConnectionStatus::Resuming, &session.phone_name);
+    set_connection(link, &phone_id, events, ConnectionStatus::Resuming, &session.phone_name);
 
     let cursor = {
         let mut guard = app.lock().expect("app mutex poisoned");
-        let mirror = guard.controller().version().cloned();
-        resume_cursor(guard.store(), mirror.as_ref())
+        let mirror = guard.controller(&phone_id).version().cloned();
+        resume_cursor(guard.store(), &phone_id, mirror.as_ref())
     };
 
     let resumed = client.resume(cursor).await?;
-    apply_payload(resumed, app, link, events, state_path);
-    set_connection(link, events, ConnectionStatus::Live, &session.phone_name);
+    apply_payload(resumed, app, link, &phone_id, events, state_path);
+    set_connection(link, &phone_id, events, ConnectionStatus::Live, &session.phone_name);
 
     // The mirror is a projection of the phone's log, so every session pulls what
     // it missed while disconnected rather than trusting what it already holds.
@@ -374,7 +379,13 @@ pub async fn run_one_session(
                 // A nudge carries no rows, so it has to be answered with a pull
                 // before the desktop's history is accurate again.
                 if let Payload::CallLogChangedEvent(_) = &payload {
-                    let since = { app.lock().expect("app mutex poisoned").store().cursor().newest_entry_ms };
+                    let since = {
+                        app.lock()
+                            .expect("app mutex poisoned")
+                            .store()
+                            .cursor(&phone_id)
+                            .newest_entry_ms
+                    };
                     client
                         .send_payload(to_payload(OutboundRequest::SyncCallLog {
                             since_ms: since,
@@ -383,14 +394,14 @@ pub async fn run_one_session(
                         .await?;
                 }
 
-                apply_payload(payload, app, link, events, state_path);
+                apply_payload(payload, app, link, &phone_id, events, state_path);
 
                 if revoked {
                     // The phone dropped this desktop, so the stored pairing is
                     // dead: keeping it would leave the UI offering a phone that
                     // will refuse every handshake from now on.
-                    forget_phone(app, state_path);
-                    set_connection(link, events, ConnectionStatus::Idle, "");
+                    forget_phone(app, link, &phone_id, state_path);
+                    set_connection(link, &phone_id, events, ConnectionStatus::Idle, "");
                     return Err(TransportError::Revoked("unpaired on the phone".into()));
                 }
             }
@@ -399,10 +410,19 @@ pub async fn run_one_session(
 }
 
 /// Discards the persisted pairing after the phone revoked this desktop.
-fn forget_phone(app: &SharedApp, state_path: &std::path::Path) {
-    let mut guard = app.lock().expect("app mutex poisoned");
-    guard.store().unpair();
-    let _ = guard.store().save(state_path);
+fn forget_phone(
+    app: &SharedApp,
+    link: &SharedLink,
+    phone_id: &str,
+    state_path: &std::path::Path,
+) {
+    {
+        let mut guard = app.lock().expect("app mutex poisoned");
+        guard.store().remove_phone(phone_id);
+        guard.forget_controller(phone_id);
+        let _ = guard.store().save(state_path);
+    }
+    link.lock().expect("link mutex poisoned").forget(phone_id);
 }
 
 /// How many call-log rows to pull per request; the phone caps at 200.
@@ -413,6 +433,7 @@ fn apply_payload(
     payload: Payload,
     app: &SharedApp,
     link: &SharedLink,
+    phone_id: &str,
     events: &EventPublisher,
     state_path: &std::path::Path,
 ) {
@@ -431,8 +452,9 @@ fn apply_payload(
 
         {
             let mut guard = link.lock().expect("link mutex poisoned");
-            guard.audio_devices = devices.clone();
-            guard.active_bt_device_address = event.active_bt_device_address.clone();
+            let entry = guard.entry(phone_id);
+            entry.audio_devices = devices.clone();
+            entry.active_bt_device_address = event.active_bt_device_address.clone();
         }
         events.publish(IpcEvent::AudioDevicesChanged {
             devices,
@@ -449,8 +471,10 @@ fn apply_payload(
             response.entries.into_iter().map(call_log_row).collect();
         {
             let mut guard = app.lock().expect("app mutex poisoned");
-            guard.store().merge_call_log(rows);
-            guard.store().set_call_log_version(response.log_version);
+            guard.store().merge_call_log(phone_id, rows);
+            guard
+                .store()
+                .set_call_log_version(phone_id, response.log_version);
             let _ = guard.store().save(state_path);
         }
         events.publish(IpcEvent::HistoryChanged {
@@ -465,7 +489,7 @@ fn apply_payload(
 
     let outputs = {
         let mut guard = app.lock().expect("app mutex poisoned");
-        guard.controller().apply_phone_event(event)
+        guard.controller(phone_id).apply_phone_event(event)
     };
 
     for output in outputs {
@@ -526,15 +550,17 @@ fn call_view(call: &Call) -> tandem_ipc::api::CallView {
 /// window was opened does not sit showing a stale "not connected".
 fn set_connection(
     link: &SharedLink,
+    phone_id: &str,
     events: &EventPublisher,
     connection: ConnectionStatus,
     phone_name: &str,
 ) {
     {
         let mut guard = link.lock().expect("link mutex poisoned");
-        guard.connection = Some(connection);
+        let entry = guard.entry(phone_id);
+        entry.connection = Some(connection);
         if !phone_name.is_empty() {
-            guard.phone_name = phone_name.to_string();
+            entry.phone_name = phone_name.to_string();
         }
     }
     events.publish(IpcEvent::ConnectionChanged { connection });
@@ -567,7 +593,7 @@ pub async fn supervise(
             Ok(()) => backoff.reset(),
             Err(error) => match classify(&error) {
                 AttemptOutcome::Fatal(fatal) => {
-                    set_connection(&link, &events, ConnectionStatus::Terminated, "");
+                    set_connection(&link, &endpoint.device_id, &events, ConnectionStatus::Terminated, "");
                     events.publish(IpcEvent::Revoked {
                         reason: fatal.to_string(),
                     });
@@ -577,7 +603,7 @@ pub async fn supervise(
             },
         }
 
-        set_connection(&link, &events, ConnectionStatus::Backoff, "");
+        set_connection(&link, &endpoint.device_id, &events, ConnectionStatus::Backoff, "");
         tokio::time::sleep(next_delay(&mut backoff, clock_entropy())).await;
     }
 }
@@ -608,7 +634,7 @@ mod tests {
 
     #[test]
     fn an_empty_mirror_resumes_from_zero() {
-        let cursor = resume_cursor(&Store::default(), None);
+        let cursor = resume_cursor(&Store::default(), "phone-1", None);
         assert_eq!(cursor.last_epoch_id, "");
         assert_eq!(cursor.last_state_seq, 0);
     }
@@ -616,13 +642,13 @@ mod tests {
     #[test]
     fn the_cursor_carries_the_last_seen_version_and_log() {
         let mut store = Store::default();
-        store.set_call_log_version(9);
+        store.set_call_log_version("phone-1", 9);
         let version = StateVersion {
             epoch_id: "epoch-1".into(),
             state_seq: 42,
         };
 
-        let cursor = resume_cursor(&store, Some(&version));
+        let cursor = resume_cursor(&store, "phone-1", Some(&version));
         assert_eq!(cursor.last_epoch_id, "epoch-1");
         assert_eq!(cursor.last_state_seq, 42);
         assert_eq!(cursor.last_call_log_version, 9);

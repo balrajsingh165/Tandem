@@ -242,6 +242,8 @@ mod tests {
             self.seen.push(request.clone());
             match request {
                 IpcRequest::Status => Ok(IpcResponse::Status(StatusResult {
+                    phones: Vec::new(),
+                    selected_phone_id: String::new(),
                     connection: ConnectionStatus::Live,
                     phone_name: "Pixel".into(),
                     calls: Vec::new(),

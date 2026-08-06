@@ -38,6 +38,9 @@ use config::Config;
 use ipc_service::{LinkState, SharedApp, SharedLink};
 use session_loop::PhoneEndpoint;
 
+/// Every harness pairs exactly this phone, so per-phone lookups have a key.
+const PHONE: &str = "phone-under-test";
+
 #[derive(Debug)]
 struct AcceptAnyClient;
 
@@ -247,7 +250,7 @@ fn harness(
     (
         PhoneEndpoint {
             // A fixed host bypasses discovery, keeping the test to a real socket.
-            device_id: "phone-under-test".into(),
+            device_id: PHONE.into(),
             host: "127.0.0.1".into(),
             port,
             pin: tandem_transport::tls::PinSource::Paired(SpkiFingerprint::from_spki_der(spki)),
@@ -288,7 +291,7 @@ async fn the_mirror_tracks_phone_truth() {
 
     let mut guard = app.lock().unwrap();
     let mirror = guard
-        .controller()
+        .controller(PHONE)
         .mirror()
         .cloned()
         .expect("mirror present");
@@ -331,7 +334,7 @@ async fn the_link_reaches_live_and_names_the_phone() {
 
     tokio::time::sleep(std::time::Duration::from_millis(600)).await;
 
-    let state = link.lock().unwrap().clone();
+    let state = link.lock().unwrap().of(PHONE);
     assert_eq!(state.connection, Some(ConnectionStatus::Live));
     assert_eq!(state.phone_name, "Pixel");
 
@@ -367,7 +370,7 @@ async fn the_session_emergency_list_arms_the_local_pre_check() {
 
     tokio::time::sleep(std::time::Duration::from_millis(600)).await;
 
-    let refused = app.lock().unwrap().controller().apply_user_command(
+    let refused = app.lock().unwrap().controller(PHONE).apply_user_command(
         tandem_core::events::UserCommand::Dial {
             number: "110".into(),
             sim_slot: -1,
@@ -403,7 +406,7 @@ async fn revocation_stops_the_supervisor() {
         .unwrap();
 
     assert_eq!(
-        link.lock().unwrap().connection,
+        link.lock().unwrap().of(PHONE).connection,
         Some(ConnectionStatus::Terminated)
     );
     assert_eq!(

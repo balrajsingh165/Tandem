@@ -19,9 +19,9 @@ use tandem_core::model::{AudioRoute, Call, CallState};
 /// mutation, so no lock is ever held across an await.
 pub type SharedApp = std::sync::Arc<std::sync::Mutex<App>>;
 
-/// Connection facts the supervisor reports for the UI to render.
+/// Connection facts one supervisor reports for the UI to render.
 #[derive(Debug, Clone, Default)]
-pub struct LinkState {
+pub struct PhoneLink {
     pub connection: Option<ConnectionStatus>,
     pub phone_name: String,
     /// Audio targets as the phone last reported them, so status and events agree.
@@ -29,11 +29,63 @@ pub struct LinkState {
     pub active_bt_device_address: String,
 }
 
+/// Link state for every paired phone, plus which one the UI is driving. Each
+/// phone has its own session, so none of this can be a single global.
+#[derive(Debug, Clone, Default)]
+pub struct LinkState {
+    phones: std::collections::HashMap<String, PhoneLink>,
+    selected: String,
+}
+
+impl LinkState {
+    pub fn of(&self, phone_id: &str) -> PhoneLink {
+        self.phones.get(phone_id).cloned().unwrap_or_default()
+    }
+
+    pub fn entry(&mut self, phone_id: &str) -> &mut PhoneLink {
+        self.phones.entry(phone_id.to_string()).or_default()
+    }
+
+    pub fn forget(&mut self, phone_id: &str) {
+        self.phones.remove(phone_id);
+        if self.selected == phone_id {
+            self.selected = self.phones.keys().next().cloned().unwrap_or_default();
+        }
+    }
+
+    pub fn selected(&self) -> &str {
+        &self.selected
+    }
+
+    /// Selecting an unknown phone is ignored: the UI must never be able to point
+    /// commands at something that was just unpaired.
+    pub fn select(&mut self, phone_id: &str) {
+        if self.phones.contains_key(phone_id) {
+            self.selected = phone_id.to_string();
+        }
+    }
+
+    /// The first phone to appear becomes the selection, so a single-phone setup
+    /// never needs the user to choose.
+    pub fn ensure_selected(&mut self, phone_id: &str) {
+        self.entry(phone_id);
+        if self.selected.is_empty() {
+            self.selected = phone_id.to_string();
+        }
+    }
+}
+
 pub type SharedLink = std::sync::Arc<std::sync::Mutex<LinkState>>;
 
-/// The running control session, shared so that whoever pairs, unpairs, or starts
-/// the daemon is all talking about the same one.
-pub type SessionTask = std::sync::Arc<std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>>;
+/// The running control sessions, keyed by phone, shared so that whoever pairs,
+/// unpairs, or starts the daemon is all talking about the same ones.
+pub type SessionTasks =
+    std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, tokio::task::JoinHandle<()>>>>;
+
+/// One command queue per phone: intent for one phone must never be written to
+/// another phone's socket.
+pub type CommandBuses =
+    std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<crate::session_loop::CommandBus>>>>;
 
 /// What the service needs to start a pairing attempt on the user's behalf.
 /// Pairing is long-running, so the request returns immediately and progress
@@ -44,8 +96,8 @@ pub struct PairingLauncher {
     pub events: tandem_ipc::server::EventPublisher,
     pub app: SharedApp,
     pub link: SharedLink,
-    pub session: SessionTask,
-    pub commands: std::sync::Arc<crate::session_loop::CommandBus>,
+    pub sessions: SessionTasks,
+    pub commands: CommandBuses,
     pub state_path: std::path::PathBuf,
     pub phone_port: u16,
 }
@@ -54,9 +106,25 @@ pub struct PairingLauncher {
 /// the desktop would stay offline until the next daemon restart, even though the
 /// pairing succeeded.
 fn start_session_for(launcher: &PairingLauncher, record: &tandem_pairing::flow::PairedPhoneRecord) {
+    let phone_id = record.phone_device_id.clone();
+
+    let bus = {
+        let mut guard = launcher.commands.lock().expect("bus mutex poisoned");
+        guard
+            .entry(phone_id.clone())
+            .or_insert_with(|| crate::session_loop::CommandBus::new().0)
+            .clone()
+    };
+
+    launcher
+        .link
+        .lock()
+        .expect("link mutex poisoned")
+        .ensure_selected(&phone_id);
+
     let started = tokio::spawn(crate::session_loop::supervise(
         crate::session_loop::PhoneEndpoint {
-            device_id: record.phone_device_id.clone(),
+            device_id: phone_id.clone(),
             host: String::new(),
             port: launcher.phone_port,
             pin: tandem_transport::tls::PinSource::Paired(record.phone_spki_sha256.clone()),
@@ -65,15 +133,15 @@ fn start_session_for(launcher: &PairingLauncher, record: &tandem_pairing::flow::
         launcher.app.clone(),
         launcher.link.clone(),
         launcher.events.clone(),
-        launcher.commands.reset(),
+        bus.reset(),
         launcher.state_path.clone(),
     ));
 
     if let Some(previous) = launcher
-        .session
+        .sessions
         .lock()
         .expect("session mutex poisoned")
-        .replace(started)
+        .insert(phone_id, started)
     {
         previous.abort();
     }
@@ -84,7 +152,7 @@ fn start_session_for(launcher: &PairingLauncher, record: &tandem_pairing::flow::
 pub struct DaemonIpcService {
     app: SharedApp,
     link: SharedLink,
-    commands: std::sync::Arc<crate::session_loop::CommandBus>,
+    commands: CommandBuses,
     pairing: Option<PairingLauncher>,
     /// The offer currently on screen. Two live offers would race for the phone's
     /// single pairing window, so showing a new code cancels the old one.
@@ -98,11 +166,7 @@ pub struct DaemonIpcService {
 pub type PendingApproval = std::sync::Arc<std::sync::Mutex<Option<tokio::sync::oneshot::Sender<bool>>>>;
 
 impl DaemonIpcService {
-    pub fn new(
-        app: SharedApp,
-        link: SharedLink,
-        commands: std::sync::Arc<crate::session_loop::CommandBus>,
-    ) -> Self {
+    pub fn new(app: SharedApp, link: SharedLink, commands: CommandBuses) -> Self {
         Self {
             app,
             link,
@@ -155,7 +219,7 @@ impl DaemonIpcService {
                         let mut guard = launcher.app.lock().expect("app mutex poisoned");
                         guard
                             .store()
-                            .set_paired_phone(tandem_core::model::PairedPhone {
+                            .add_phone(tandem_core::model::PairedPhone {
                                 device_id: record.phone_device_id.clone(),
                                 name: record.phone_name.clone(),
                                 spki_sha256: record.phone_spki_sha256.to_base64url(),
@@ -188,8 +252,12 @@ impl DaemonIpcService {
     /// Forgets the phone and drops the session, telling the phone first so it
     /// revokes this desktop too. Neither side is left trusting a peer the other
     /// has dropped.
-    fn unpair(&mut self) -> Result<IpcResponse, IpcError> {
+    fn unpair(&mut self, phone_id: String) -> Result<IpcResponse, IpcError> {
         let launcher = self.pairing.clone().ok_or(IpcError::Internal)?;
+        let phone_id = self.resolve_phone(&phone_id);
+        if phone_id.is_empty() {
+            return Err(IpcError::Internal);
+        }
 
         if let Some(offer) = self.offer_task.take() {
             offer.abort();
@@ -197,13 +265,15 @@ impl DaemonIpcService {
 
         // Best effort: an offline phone cannot be told, and the desktop still has
         // to be able to forget it. The phone drops trust when told, or on its own.
-        let _ = self.commands.send(tandem_core::events::OutboundRequest::Unpair);
+        if let Some(bus) = self.bus_for(&phone_id) {
+            let _ = bus.send(tandem_core::events::OutboundRequest::Unpair);
+        }
 
         let session = launcher
-            .session
+            .sessions
             .lock()
             .expect("session mutex poisoned")
-            .take();
+            .remove(&phone_id);
         if let Some(session) = session {
             // The queued frame needs the session alive long enough to be written,
             // but the supervisor must not outlive the pairing or it would retry
@@ -216,21 +286,79 @@ impl DaemonIpcService {
 
         {
             let mut guard = self.app.lock().expect("app mutex poisoned");
-            guard.store().unpair();
+            guard.store().remove_phone(&phone_id);
+            guard.forget_controller(&phone_id);
             let _ = guard.store().save(&launcher.state_path);
         }
-        {
-            let mut guard = self.link.lock().expect("link mutex poisoned");
-            guard.connection = Some(ConnectionStatus::Idle);
-            guard.phone_name = String::new();
-        }
+        self.link
+            .lock()
+            .expect("link mutex poisoned")
+            .forget(&phone_id);
+        self.commands
+            .lock()
+            .expect("bus mutex poisoned")
+            .remove(&phone_id);
 
-        launcher
-            .events
-            .publish(tandem_ipc::api::IpcEvent::ConnectionChanged {
-                connection: ConnectionStatus::Idle,
-            });
+        self.publish_phones(&launcher.events);
         Ok(IpcResponse::Ok)
+    }
+
+    /// An empty id from the UI means "whatever is selected", so every command has
+    /// a target even before the user has chosen one.
+    fn resolve_phone(&self, phone_id: &str) -> String {
+        if !phone_id.is_empty() {
+            return phone_id.to_string();
+        }
+        self.link
+            .lock()
+            .expect("link mutex poisoned")
+            .selected()
+            .to_string()
+    }
+
+    fn bus_for(&self, phone_id: &str) -> Option<std::sync::Arc<crate::session_loop::CommandBus>> {
+        self.commands
+            .lock()
+            .expect("bus mutex poisoned")
+            .get(phone_id)
+            .cloned()
+    }
+
+    fn phone_summaries(&mut self) -> (Vec<tandem_ipc::api::PhoneSummary>, String) {
+        let link = self.link.lock().expect("link mutex poisoned").clone();
+        let app = self.app.lock().expect("app mutex poisoned");
+
+        let phones: Vec<tandem_core::model::PairedPhone> = app.store_ref().phones().to_vec();
+        let summaries = phones
+            .iter()
+            .map(|phone| {
+                let state = link.of(&phone.device_id);
+                tandem_ipc::api::PhoneSummary {
+                    device_id: phone.device_id.clone(),
+                    name: if state.phone_name.is_empty() {
+                        phone.name.clone()
+                    } else {
+                        state.phone_name.clone()
+                    },
+                    connection: state.connection.unwrap_or(ConnectionStatus::Idle),
+                    calls: app
+                        .controller_ref(&phone.device_id)
+                        .and_then(|c| c.mirror())
+                        .map(|m| m.calls.iter().map(call_view).collect())
+                        .unwrap_or_default(),
+                }
+            })
+            .collect();
+
+        (summaries, link.selected().to_string())
+    }
+
+    fn publish_phones(&mut self, events: &tandem_ipc::server::EventPublisher) {
+        let (phones, selected_phone_id) = self.phone_summaries();
+        events.publish(tandem_ipc::api::IpcEvent::PhonesChanged {
+            phones,
+            selected_phone_id,
+        });
     }
 
     /// Mints a pairing offer, returns it for the UI to draw as a QR code, and
@@ -295,7 +423,7 @@ impl DaemonIpcService {
                         let mut guard = launcher.app.lock().expect("app mutex poisoned");
                         guard
                             .store()
-                            .set_paired_phone(tandem_core::model::PairedPhone {
+                            .add_phone(tandem_core::model::PairedPhone {
                                 device_id: record.phone_device_id.clone(),
                                 name: record.phone_name.clone(),
                                 spki_sha256: record.phone_spki_sha256.to_base64url(),
@@ -334,10 +462,13 @@ impl DaemonIpcService {
     /// still render recents while the link is down (ADR-0007).
     fn history(&mut self, since_ms: i64, limit: u32) -> IpcResponse {
         let guard = self.app.lock().expect("app mutex poisoned");
+
+        // Recents span every paired phone: the user thinks in calls, not devices.
         let matching: Vec<&tandem_core::model::CallLogRow> = guard
             .store_ref()
-            .call_log()
-            .iter()
+            .all_call_log()
+            .into_iter()
+            .map(|(_, row)| row)
             .filter(|row| row.started_at_ms >= since_ms)
             .collect();
 
@@ -360,15 +491,29 @@ impl DaemonIpcService {
         }
     }
 
+    /// Status is the selected phone's view plus the roster, so a single-phone
+    /// setup reads exactly as it did before the switcher existed.
     fn status(&mut self) -> StatusResult {
-        let mut app = self.app.lock().expect("app mutex poisoned");
-        let link = self.link.lock().expect("link mutex poisoned").clone();
+        let (phones, selected_phone_id) = self.phone_summaries();
+
+        let app = self.app.lock().expect("app mutex poisoned");
+        let state = self
+            .link
+            .lock()
+            .expect("link mutex poisoned")
+            .of(&selected_phone_id);
 
         let desktop_audio_available = app.desktop_audio_available();
-        let mirror = app.controller().mirror().cloned();
+        let mirror = app
+            .controller_ref(&selected_phone_id)
+            .and_then(|c| c.mirror())
+            .cloned();
+
         StatusResult {
-            connection: link.connection.unwrap_or(ConnectionStatus::Idle),
-            phone_name: link.phone_name,
+            phones,
+            selected_phone_id,
+            connection: state.connection.unwrap_or(ConnectionStatus::Idle),
+            phone_name: state.phone_name,
             calls: mirror
                 .as_ref()
                 .map(|m| m.calls.iter().map(call_view).collect())
@@ -379,8 +524,8 @@ impl DaemonIpcService {
                 .unwrap_or(IpcAudioRoute::Earpiece),
             microphone_muted: mirror.as_ref().map(|m| m.microphone_muted).unwrap_or(false),
             desktop_audio_available,
-            audio_devices: link.audio_devices,
-            active_bt_device_address: link.active_bt_device_address,
+            audio_devices: state.audio_devices,
+            active_bt_device_address: state.active_bt_device_address,
         }
     }
 }
@@ -423,7 +568,17 @@ impl IpcService for DaemonIpcService {
             }
             IpcRequest::Pairing { qr_payload } => return self.start_pairing(qr_payload),
             IpcRequest::PairingOffer => return self.start_offer(),
-            IpcRequest::Unpair => return self.unpair(),
+            IpcRequest::Unpair { phone_id } => return self.unpair(phone_id),
+            IpcRequest::SelectPhone { phone_id } => {
+                self.link
+                    .lock()
+                    .expect("link mutex poisoned")
+                    .select(&phone_id);
+                if let Some(launcher) = self.pairing.clone() {
+                    self.publish_phones(&launcher.events);
+                }
+                return Ok(IpcResponse::Ok);
+            }
             IpcRequest::PairingConfirm { accept } => {
                 let verdict = self
                     .pending_approval
@@ -443,18 +598,26 @@ impl IpcService for DaemonIpcService {
             IpcRequest::Settings => return Err(IpcError::Internal),
         };
 
+        // Commands act on the selected phone, and are validated against that
+        // phone's mirror rather than a shared one.
+        let phone_id = self.resolve_phone("");
+        if phone_id.is_empty() {
+            return Err(IpcError::PhoneOffline);
+        }
+
         let output = self
             .app
             .lock()
             .expect("app mutex poisoned")
-            .controller()
+            .controller(&phone_id)
             .apply_user_command(command)
             .map_err(map_core_error)?;
 
         // Validating intent is only half the job: the request still has to reach
         // the phone, and the supervisor owns the socket.
         if let tandem_core::events::ControllerOutput::SendRequest(request) = output {
-            self.commands
+            self.bus_for(&phone_id)
+                .ok_or(IpcError::PhoneOffline)?
                 .send(request)
                 .map_err(|()| IpcError::PhoneOffline)?;
         }
@@ -579,33 +742,54 @@ mod tests {
     }
 
     fn service() -> Harness {
-        service_with_link(LinkState::default())
+        service_with_link(live_link())
     }
+
+    const TEST_PHONE: &str = "phone-under-test";
 
     fn service_with_link(link: LinkState) -> Harness {
         let mut app = App::build(Config {
             bluetooth_backend: BackendKind::Null,
             ..Config::default()
         });
-        app.adopt_emergency_numbers(vec!["911".into(), "112".into()]);
-        let (commands, receiver) = crate::session_loop::CommandBus::new();
+        app.adopt_emergency_numbers(TEST_PHONE, vec!["911".into(), "112".into()]);
+        app.store().add_phone(tandem_core::model::PairedPhone {
+            device_id: TEST_PHONE.into(),
+            name: "Pixel".into(),
+            spki_sha256: "pin".into(),
+            bt_address: String::new(),
+        });
+
+        let (bus, receiver) = crate::session_loop::CommandBus::new();
+        let buses: CommandBuses = Default::default();
+        buses
+            .lock()
+            .expect("bus mutex poisoned")
+            .insert(TEST_PHONE.into(), bus);
+
         Harness {
             service: DaemonIpcService::new(
                 std::sync::Arc::new(std::sync::Mutex::new(app)),
                 std::sync::Arc::new(std::sync::Mutex::new(link)),
-                commands,
+                buses,
             ),
             commands: receiver,
         }
     }
 
+    /// The link state a single-phone test wants: one phone, selected, live.
+    fn live_link() -> LinkState {
+        let mut link = LinkState::default();
+        link.ensure_selected(TEST_PHONE);
+        let entry = link.entry(TEST_PHONE);
+        entry.connection = Some(ConnectionStatus::Live);
+        entry.phone_name = "Pixel".into();
+        link
+    }
+
     #[test]
     fn status_reports_media_availability_so_the_ui_can_explain_itself() {
-        let mut h = service_with_link(LinkState {
-            connection: Some(ConnectionStatus::Live),
-            phone_name: "Pixel".into(),
-            ..LinkState::default()
-        });
+        let mut h = service_with_link(live_link());
         let response = h.service.handle(IpcRequest::Status).unwrap();
 
         match response {

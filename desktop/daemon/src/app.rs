@@ -31,7 +31,9 @@ impl SubsystemHealth {
 /// them and continues, because losing audio must not cost the user call control.
 pub struct App {
     config: Config,
-    controller: CallController,
+    /// One mirror per phone: two phones have independent call state, and a shared
+    /// controller would let one phone's snapshot erase the other's.
+    controllers: std::collections::HashMap<String, CallController>,
     store: Store,
     bluetooth: Box<dyn BluetoothBackend>,
     health: SubsystemHealth,
@@ -45,7 +47,7 @@ impl App {
 
         Self {
             config,
-            controller: CallController::default(),
+            controllers: std::collections::HashMap::new(),
             store: Store::default(),
             bluetooth,
             health: SubsystemHealth {
@@ -60,8 +62,18 @@ impl App {
         &self.config
     }
 
-    pub fn controller(&mut self) -> &mut CallController {
-        &mut self.controller
+    /// The mirror for one phone, created on first use so a phone that has not
+    /// reported yet still has somewhere to validate commands against.
+    pub fn controller(&mut self, phone_id: &str) -> &mut CallController {
+        self.controllers.entry(phone_id.to_string()).or_default()
+    }
+
+    pub fn controller_ref(&self, phone_id: &str) -> Option<&CallController> {
+        self.controllers.get(phone_id)
+    }
+
+    pub fn forget_controller(&mut self, phone_id: &str) {
+        self.controllers.remove(phone_id);
     }
 
     pub fn store(&mut self) -> &mut Store {
@@ -94,8 +106,8 @@ impl App {
 
     /// Applies the emergency list the phone reports at session start, so the
     /// desktop-side pre-check reflects the current SIM and region (ADR-0008).
-    pub fn adopt_emergency_numbers(&mut self, numbers: Vec<String>) {
-        self.controller
+    pub fn adopt_emergency_numbers(&mut self, phone_id: &str, numbers: Vec<String>) {
+        self.controller(phone_id)
             .set_emergency_numbers(EmergencyNumbers::from_session(numbers));
     }
 
@@ -140,15 +152,15 @@ mod tests {
     #[test]
     fn adopting_the_session_emergency_list_arms_the_local_pre_check() {
         let mut app = app();
-        app.adopt_emergency_numbers(vec!["110".into()]);
+        app.adopt_emergency_numbers("p1", vec!["110".into()]);
 
-        let blocked = app.controller().apply_user_command(UserCommand::Dial {
+        let blocked = app.controller("p1").apply_user_command(UserCommand::Dial {
             number: "110".into(),
             sim_slot: -1,
         });
         assert!(blocked.is_err());
 
-        let allowed = app.controller().apply_user_command(UserCommand::Dial {
+        let allowed = app.controller("p1").apply_user_command(UserCommand::Dial {
             number: "+14155550123".into(),
             sim_slot: -1,
         });

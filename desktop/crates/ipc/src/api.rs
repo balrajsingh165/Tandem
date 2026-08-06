@@ -123,8 +123,16 @@ pub enum IpcRequest {
     PairingConfirm {
         accept: bool,
     },
-    /// Forgets the paired phone and drops the session.
-    Unpair,
+    /// Forgets the paired phone and drops the session. Empty id means the
+    /// selected phone.
+    Unpair {
+        #[serde(default)]
+        phone_id: String,
+    },
+    /// Chooses which paired phone subsequent commands act on.
+    SelectPhone {
+        phone_id: String,
+    },
     Settings,
     Status,
 }
@@ -170,9 +178,23 @@ pub struct AudioDeviceView {
     pub name: String,
 }
 
+/// One paired phone as the switcher shows it. Every phone keeps its own session
+/// and its own call state, so this is per-phone rather than a global.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PhoneSummary {
+    pub device_id: String,
+    pub name: String,
+    pub connection: ConnectionStatus,
+    pub calls: Vec<CallView>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StatusResult {
+    /// Every paired phone. Commands act on `selected_phone_id`.
+    pub phones: Vec<PhoneSummary>,
+    pub selected_phone_id: String,
     pub connection: ConnectionStatus,
     pub phone_name: String,
     pub calls: Vec<CallView>,
@@ -230,6 +252,11 @@ pub enum IpcEvent {
     },
     HistoryChanged {
         log_version: u64,
+    },
+    /// A phone was paired, removed, or changed connection state.
+    PhonesChanged {
+        phones: Vec<PhoneSummary>,
+        selected_phone_id: String,
     },
     /// Fired for the local pre-check and for a phone-side refusal alike, so the
     /// guidance is identical in both cases (ADR-0008).
@@ -326,6 +353,8 @@ mod tests {
     #[test]
     fn status_result_round_trips_with_camel_case_fields() {
         let status = StatusResult {
+            phones: Vec::new(),
+            selected_phone_id: String::new(),
             connection: ConnectionStatus::Live,
             phone_name: "Pixel".into(),
             calls: vec![CallView {
